@@ -78,7 +78,7 @@ calorie MAPE ≤ 25%, scan_type accuracy ≥ 95%, FDC match ≥ 60%, p95 ≤ 6 s
 
 | var | meaning |
 |---|---|
-| `OPENAI_API_KEY` | required — vision model access |
+| `OPENAI_API_KEY` | optional, switches the provider to OpenAI when set |
 | `FDC_API_KEY` | USDA FoodData Central key (`DEMO_KEY` for smoke tests) |
 | `RIVA_SCAN_MODEL` | optional model override; empty = auto-resolve best available |
 | `RIVA_SCAN_DEBUG` | default debug payloads on/off |
