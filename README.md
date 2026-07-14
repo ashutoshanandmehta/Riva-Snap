@@ -1,8 +1,8 @@
 # Riva Scan Service
 
 Food/water photo → dish + plate, portion, calories, and nutrients — tuned for
-US foods and grounded in USDA FoodData Central. See `FOOD_SCAN_MODEL_PLAN.md`
-for the full plan, metrics, and roadmap.
+US foods and grounded in USDA FoodData Central. See `ARCHITECTURE.md` for the system design (with diagrams) and
+`FOOD_SCAN_MODEL_PLAN.md` for the full plan, metrics, and roadmap.
 
 ## Run
 
