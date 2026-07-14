@@ -97,6 +97,22 @@
   summary { color: var(--text-2); font-size: 13px; cursor: pointer; }
   pre { background: var(--surface); border: 1px solid var(--brand-soft); border-radius: 12px;
     padding: 12px; font-size: 11px; overflow-x: auto; margin-top: 8px; max-height: 300px; }
+  /* In-page camera */
+  #cameraOverlay { position: fixed; inset: 0; background: #000; z-index: 50;
+    display: none; flex-direction: column; }
+  #cameraOverlay.open { display: flex; }
+  #cameraVideo { flex: 1; width: 100%; object-fit: cover; }
+  .cam-bar { position: absolute; bottom: 0; left: 0; right: 0;
+    padding: 18px 24px calc(26px + env(safe-area-inset-bottom));
+    display: flex; align-items: center; justify-content: center; }
+  #shutterBtn { width: 72px; height: 72px; border-radius: 50%; border: 5px solid #fff;
+    background: rgba(255,255,255,.25); cursor: pointer;
+    -webkit-tap-highlight-color: transparent; }
+  #shutterBtn:active { background: #fff; }
+  #closeCameraBtn { position: absolute; top: max(14px, env(safe-area-inset-top));
+    right: 16px; width: 40px; height: 40px; border-radius: 50%; border: 0;
+    background: rgba(0,0,0,.55); color: #fff; font-size: 18px; cursor: pointer; }
+
   .toast { position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%);
     background: var(--brand-deep); color: #fff; padding: 11px 18px; border-radius: 999px;
     font-size: 13.5px; box-shadow: 0 8px 18px rgba(0,0,0,.25); opacity: 0;
@@ -138,6 +154,15 @@
 </div>
 
 <div id="results"></div>
+
+<div id="cameraOverlay">
+  <video id="cameraVideo" autoplay playsinline muted></video>
+  <button id="closeCameraBtn" aria-label="Close camera">✕</button>
+  <div class="cam-bar">
+    <button id="shutterBtn" aria-label="Take photo"></button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script>
@@ -156,21 +181,73 @@ for (const button of document.querySelectorAll(".mode")) {
 }
 
 // --- pick / preview ----------------------------------------------------------
-$("captureBtn").onclick = () => $("captureInput").click();
+function setSelectedFile(file) {
+  selectedFile = file;
+  $("preview").src = URL.createObjectURL(file);
+  $("previewCard").style.display = "block";
+  $("previewWrap").style.display = "block";
+  $("results").style.display = "none";
+  $("detectedPill").style.display = "none";
+}
+
 $("galleryBtn").onclick = () => $("galleryInput").click();
 for (const id of ["captureInput", "galleryInput"]) {
   $(id).addEventListener("change", (e) => {
     const file = e.target.files[0];
-    if (!file) return;
-    selectedFile = file;
-    $("preview").src = URL.createObjectURL(file);
-    $("previewCard").style.display = "block";
-    $("previewWrap").style.display = "block";
-    $("results").style.display = "none";
-    $("detectedPill").style.display = "none";
+    if (file) setSelectedFile(file);
     e.target.value = "";
   });
 }
+
+// --- in-page camera ------------------------------------------------------------
+// Capture opens a real camera view with a shutter button. Needs HTTPS (or
+// localhost); anywhere the camera is unavailable we fall back to the file
+// input, which on phones still opens the native camera.
+let cameraStream = null;
+
+$("captureBtn").onclick = async () => {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    $("captureInput").click();
+    return;
+  }
+  try {
+    cameraStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } },
+      audio: false,
+    });
+  } catch (error) {
+    $("captureInput").click();
+    return;
+  }
+  $("cameraVideo").srcObject = cameraStream;
+  $("cameraOverlay").classList.add("open");
+};
+
+function closeCamera() {
+  if (cameraStream) {
+    cameraStream.getTracks().forEach(track => track.stop());
+    cameraStream = null;
+  }
+  $("cameraVideo").srcObject = null;
+  $("cameraOverlay").classList.remove("open");
+}
+
+$("closeCameraBtn").onclick = closeCamera;
+
+$("shutterBtn").onclick = () => {
+  const video = $("cameraVideo");
+  if (!video.videoWidth) return;
+  const canvas = document.createElement("canvas");
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  canvas.getContext("2d").drawImage(video, 0, 0);
+  canvas.toBlob((blob) => {
+    if (blob) {
+      setSelectedFile(new File([blob], "capture.jpg", { type: "image/jpeg" }));
+    }
+    closeCamera();
+  }, "image/jpeg", 0.92);
+};
 $("resetBtn").onclick = () => {
   selectedFile = null;
   $("previewCard").style.display = "none";
