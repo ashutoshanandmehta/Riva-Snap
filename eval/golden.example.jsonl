@@ -1,0 +1,3 @@
+{"file": "chicken_plate.jpg", "dish": "grilled chicken breast", "kcal": 450, "grams": 300, "scan_type": "food"}
+{"file": "glass_of_water.jpg", "dish": "water", "kcal": 0, "grams": 350, "scan_type": "water"}
+{"file": "car_keys.jpg", "dish": "", "kcal": 0, "grams": 0, "scan_type": "not_food"}
