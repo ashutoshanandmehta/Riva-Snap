@@ -123,7 +123,7 @@
   </div>
   <input type="file" id="captureInput" accept="image/*" capture="environment" hidden>
   <input type="file" id="galleryInput" accept="image/*" hidden>
-  <input type="text" id="hint" placeholder="Optional hint — e.g. “dinner at Chipotle”">
+  <input type="text" id="hint" placeholder="Add a hint if you like, such as “dinner at Chipotle”">
 </div>
 
 <div class="card" id="previewCard" style="display:none">
@@ -230,7 +230,7 @@ function render(data, clientMs) {
     html += `<div class="card" style="background:var(--brand-wash)">
       <div class="overline" style="color:var(--brand)">Heads up</div>
       <p style="margin-top:6px;font-size:14.5px">You chose to log <b>${wanted}</b>,
-      but this looks like <b>${got}</b> — showing what's actually in the photo.
+      but this looks like <b>${got}</b>, so here is what the photo actually shows.
       ${data.requested_mode === "water" && data.scan_type === "beverage"
         ? "Only plain water counts toward your hydration goal." : ""}</p>
     </div>`;
@@ -246,7 +246,7 @@ function render(data, clientMs) {
       <div class="item-head">
         <div>
           <div class="item-name">${escapeHtml(item.name)}</div>
-          <div class="item-sub">${escapeHtml(item.portion_desc)} · estimated from visual detection</div>
+          <div class="item-sub">${escapeHtml(item.portion_desc)}, estimated from the photo</div>
         </div>
         <span class="badge ${item.matched ? "matched" : "estimate"}">
           ${item.matched ? "✓ MATCHED" : "AI ESTIMATE"}</span>
@@ -260,7 +260,7 @@ function render(data, clientMs) {
         ${item.alternatives.map(a => `<span class="alt-chip">${escapeHtml(a)}</span>`).join("")}
       </div>` : ""}
       <div class="item-actions">
-        <button class="btn btn-soft" onclick="toast('Portion editing lands in the app — tweak the prompt for now')">Edit</button>
+        <button class="btn btn-soft" onclick="toast('Portion editing is coming in the app')">Edit</button>
         <button class="btn btn-primary" onclick="accept()">Accept</button>
       </div>
     </div>`;
@@ -269,13 +269,13 @@ function render(data, clientMs) {
   if (data.water) {
     const w = data.water;
     const glassWord = w.glasses === 1 ? "glass" : "glasses";
-    const liters = w.volume_ml >= 1000 ? ` · ${(w.volume_ml / 1000).toFixed(1)} L` : "";
+    const liters = w.volume_ml >= 1000 ? ` (${(w.volume_ml / 1000).toFixed(1)} L)` : "";
     const label = data.scan_type === "water" ? "water" : cap(data.scan_type);
     html += `<div class="card">
       <div class="item-head">
         <div>
           <div class="item-name">${w.glasses} ${glassWord} of ${escapeHtml(label)}</div>
-          <div class="item-sub">${escapeHtml(w.container_type)} · estimated from visual detection</div>
+          <div class="item-sub">${escapeHtml(w.container_type)}, estimated from the photo</div>
         </div>
         <span class="badge estimate">AI ESTIMATE</span>
       </div>
@@ -307,8 +307,12 @@ function render(data, clientMs) {
 }
 
 function accept() {
-  const delta = lastResponse ? lastResponse.nutrition_day_delta : {};
-  toast("Would log to nutrition_days → " + JSON.stringify(delta));
+  const delta = lastResponse ? lastResponse.nutrition_day_delta : null;
+  if (!delta) return;
+  const message = delta.water_ounces > 0
+    ? `Logged ${delta.water_ounces} oz of water (test mode, nothing is saved yet)`
+    : `Logged ${delta.calories} kcal and ${delta.protein_grams}g protein (test mode, nothing is saved yet)`;
+  toast(message);
 }
 
 // --- helpers -----------------------------------------------------------------

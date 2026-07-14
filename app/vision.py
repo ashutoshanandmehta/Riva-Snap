@@ -116,7 +116,7 @@ def make_client(config: Settings) -> tuple[OpenAI, str]:
     if config.groq_api_key:
         return OpenAI(api_key=config.groq_api_key, base_url=GROQ_BASE_URL), "groq"
     raise RuntimeError(
-        "No LLM key configured — set GROQ_API_KEY or OPENAI_API_KEY in scan-service/.env."
+        "No LLM key configured. Set GROQ_API_KEY or OPENAI_API_KEY in scan-service/.env."
     )
 
 
