@@ -22,6 +22,22 @@ curl http://localhost:8000/healthz
 curl -F image=@path/to/food-photo.jpg http://localhost:8000/v1/scan | python3 -m json.tool
 ```
 
+## Deploy on Render
+
+The repo ships a `render.yaml` blueprint. In the Render dashboard choose
+New, then Blueprint, pick this repo, and Render reads the config and asks
+for two secrets: `GROQ_API_KEY` and `FDC_API_KEY`. The service comes up at
+`https://riva-snap.onrender.com` (or similar) with the web tester at the
+root and the API at `/v1/scan`.
+
+Notes:
+
+- The free plan sleeps after about 15 minutes of no traffic. The first
+  request after that takes 30 to 60 seconds to wake the service.
+- The URL is public and unauthenticated in this phase, which is fine for
+  tuning but means anyone with the link can spend your Groq quota. Ask for
+  a simple access key gate before sharing the link widely.
+
 ## Mobile web tester
 
 The service serves a phone-optimized tester at its root. On any phone on the

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: riva-snap
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6
+      # Secrets: Render prompts for these when you deploy the blueprint.
+      - key: GROQ_API_KEY
+        sync: false
+      - key: FDC_API_KEY
+        sync: false
+      # Keep debug payloads on during the tuning phase.
+      - key: RIVA_SCAN_DEBUG
+        value: "true"
