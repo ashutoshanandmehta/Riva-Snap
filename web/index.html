@@ -109,7 +109,6 @@
 <header>
   <div class="logo">≋</div>
   <h1>Riva Snap</h1>
-  <small id="serviceInfo">…</small>
 </header>
 
 <div class="card">
@@ -155,13 +154,6 @@ for (const button of document.querySelectorAll(".mode")) {
     document.querySelectorAll(".mode").forEach(b => b.classList.toggle("active", b === button));
   };
 }
-
-// --- service info -----------------------------------------------------------
-fetch("/healthz").then(r => r.json()).then(h => {
-  $("serviceInfo").textContent =
-    (h.model ? h.model.split("/").pop() : "no model") + " · " + h.prompt_version +
-    (h.llm_key_present ? "" : " · ⚠︎ no LLM key");
-}).catch(() => { $("serviceInfo").textContent = "service unreachable"; });
 
 // --- pick / preview ----------------------------------------------------------
 $("captureBtn").onclick = () => $("captureInput").click();
@@ -308,9 +300,7 @@ function render(data, clientMs) {
     </div>`;
   }
 
-  html += `<p class="meta">${escapeHtml(data.model)} · prompt ${escapeHtml(data.prompt_version)} ·
-    server ${data.latency.total_ms} ms (vision ${data.latency.vision_ms}) · round-trip ${clientMs} ms</p>
-    <details><summary>Raw JSON (tuning)</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
+  html += `<details><summary>Raw JSON (tuning)</summary><pre>${escapeHtml(JSON.stringify(data, null, 2))}</pre></details>`;
 
   $("results").innerHTML = html;
   $("results").style.display = "block";
