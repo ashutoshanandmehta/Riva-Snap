@@ -2,8 +2,8 @@
 
 Take a photo of food or water and get back the dish, the portion, the
 calories, and the nutrients. Tuned for US foods and grounded in USDA
-FoodData Central. See `ARCHITECTURE.md` for the system design (with diagrams) and
-`FOOD_SCAN_MODEL_PLAN.md` for the full plan, metrics, and roadmap.
+FoodData Central. See `ARCHITECTURE.md` for the system design, diagrams, tuning
+surfaces, and the accuracy gate for iOS integration.
 
 ## Run
 
@@ -66,7 +66,9 @@ Response essentials:
 ## Tuning loop
 
 1. Drop photos into `eval/images/`, label them in `eval/golden.jsonl`
-   (see `golden.example.jsonl`).
+   (see `golden.example.jsonl`). Aim for 30 to 50 photos covering home
+   plates, restaurant meals, packaged foods, mixed dishes, water and
+   other drinks in varied containers, and a few non-food negatives.
 2. `.venv/bin/python eval/run_eval.py` → report in `eval/reports/`.
 3. Edit `prompts/scan_v2.md` + bump `prompt_version` in `app/config.py`
    (or change `RIVA_SCAN_MODEL` in `.env`), re-run, compare reports.
