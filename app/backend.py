@@ -6,6 +6,8 @@ log_scan() Postgres function, which stamps the verified user id and updates
 food_entries plus the nutrition_days daily aggregate in one transaction.
 """
 
+import hashlib
+import hmac
 import logging
 
 import httpx
@@ -16,6 +18,16 @@ from .config import Settings
 logger = logging.getLogger("scan.backend")
 
 _http = httpx.Client(timeout=8.0)
+
+
+def _service_headers(config: Settings) -> dict:
+    key = config.supabase_service_role_key
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    if key.startswith("eyJ"):
+        # Legacy service_role keys are JWTs and also go in the Authorization
+        # header. New sb_secret_ keys must not: they are not JWTs.
+        headers["Authorization"] = f"Bearer {key}"
+    return headers
 
 
 def is_configured(config: Settings) -> bool:
@@ -46,18 +58,65 @@ def verify_token(config: Settings, token: str) -> str:
     return user_id
 
 
+def device_session(config: Settings, device_id: str) -> dict:
+    """Silently provisions (or reuses) a per-device account and returns a
+    session for it. Interim identity while the product has no sign-in: the
+    account's email is synthetic and its password is derived from the device
+    id with the service role key, so only this server can compute it.
+    """
+    digest = hashlib.sha256(device_id.encode()).hexdigest()[:24]
+    email = f"device-{digest}@devices.riva.app"
+    password = hmac.new(
+        config.supabase_service_role_key.encode(),
+        f"riva-device:{device_id}".encode(),
+        hashlib.sha256,
+    ).hexdigest()
+
+    def grant() -> httpx.Response:
+        return _http.post(
+            f"{config.supabase_url}/auth/v1/token?grant_type=password",
+            headers={"apikey": config.supabase_anon_key, "Content-Type": "application/json"},
+            json={"email": email, "password": password},
+        )
+
+    try:
+        response = grant()
+        if response.status_code != 200:
+            created = _http.post(
+                f"{config.supabase_url}/auth/v1/admin/users",
+                headers=_service_headers(config),
+                json={"email": email, "password": password, "email_confirm": True},
+            )
+            if created.status_code not in (200, 201):
+                logger.error(
+                    "device account create failed: %s %s",
+                    created.status_code, created.text[:300],
+                )
+                raise HTTPException(status_code=502, detail="Could not set up this device. Try again.")
+            response = grant()
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=503, detail=f"Auth service unreachable: {error}") from error
+
+    if response.status_code != 200:
+        logger.error("device grant failed: %s %s", response.status_code, response.text[:300])
+        raise HTTPException(status_code=502, detail="Could not set up this device. Try again.")
+
+    token = response.json()
+    return {
+        "access_token": token["access_token"],
+        "refresh_token": token.get("refresh_token"),
+        "expires_at": token.get("expires_at"),
+        "user_id": token["user"]["id"],
+        "email": email,
+    }
+
+
 def log_scan(config: Settings, user_id: str, entry: dict) -> dict:
     """Persists an accepted scan via the log_scan RPC; returns day totals."""
-    key = config.supabase_service_role_key
-    headers = {"apikey": key, "Content-Type": "application/json"}
-    if key.startswith("eyJ"):
-        # Legacy service_role keys are JWTs and also go in the Authorization
-        # header. New sb_secret_ keys must not: they are not JWTs.
-        headers["Authorization"] = f"Bearer {key}"
     try:
         response = _http.post(
             f"{config.supabase_url}/rest/v1/rpc/log_scan",
-            headers=headers,
+            headers=_service_headers(config),
             json={
                 "p_user_id": user_id,
                 "p_scan_type": entry["scan_type"],

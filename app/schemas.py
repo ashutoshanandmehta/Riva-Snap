@@ -112,6 +112,22 @@ class LogRequest(BaseModel):
     prompt_version: str | None = None
 
 
+class DeviceSessionRequest(BaseModel):
+    """A stable client-generated id (UUID) identifying one device."""
+
+    device_id: str
+
+
+class DeviceSession(BaseModel):
+    """Session for a silently provisioned per-device account."""
+
+    access_token: str
+    refresh_token: str | None
+    expires_at: int | None
+    user_id: str
+    email: str
+
+
 class DayTotals(BaseModel):
     """The user's nutrition_days row after the log was applied."""
 

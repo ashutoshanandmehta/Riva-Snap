@@ -91,6 +91,13 @@ fields from the scan response. Writes one `food_entries` row and increments
 the user's `nutrition_days` totals in one transaction, then returns the
 updated day totals.
 
+### `POST /v1/device/session` (JSON)
+
+Interim identity for the iOS app while it has no sign-in screen. The app
+sends a stable random `device_id` and gets back a session for a silently
+provisioned account (synthetic email, password derived server side from the
+service role key). Replaced by the real sign-in when the landing page ships.
+
 ## Backend (Supabase)
 
 The service persists accepted logs to Supabase when three env vars are set:

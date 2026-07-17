@@ -19,6 +19,8 @@ from .config import settings
 from .schemas import (
     BackendConfig,
     DayTotals,
+    DeviceSession,
+    DeviceSessionRequest,
     ExtendedNutrients,
     HealthResponse,
     LatencyBreakdown,
@@ -86,6 +88,24 @@ def client_config() -> BackendConfig:
         supabase_url=config.supabase_url or None if enabled else None,
         supabase_anon_key=config.supabase_anon_key or None if enabled else None,
     )
+
+
+@app.post("/v1/device/session", response_model=DeviceSession)
+def device_session(request: DeviceSessionRequest) -> DeviceSession:
+    """Interim no-sign-in identity: the app sends its stable device id and
+    gets a session for a silently provisioned account. Replaced by the real
+    landing page sign-in later.
+    """
+    config = settings()
+    if not backend.is_configured(config):
+        raise HTTPException(
+            status_code=503,
+            detail="Device accounts need the Supabase backend. Set SUPABASE_URL and keys in .env.",
+        )
+    device_id = request.device_id.strip()
+    if not (8 <= len(device_id) <= 64) or not all(c.isalnum() or c == "-" for c in device_id):
+        raise HTTPException(status_code=400, detail="device_id must be 8 to 64 letters, digits, or dashes.")
+    return DeviceSession(**backend.device_session(config, device_id))
 
 
 @app.post("/v1/log", response_model=DayTotals)
