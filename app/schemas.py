@@ -90,6 +90,39 @@ class ScanResponse(BaseModel):
     debug: ScanDebug | None = None
 
 
+class BackendConfig(BaseModel):
+    """Public client bootstrap info (the anon key is public by design)."""
+
+    backend_enabled: bool
+    supabase_url: str | None
+    supabase_anon_key: str | None
+
+
+class LogRequest(BaseModel):
+    """An accepted scan, as sent back by the client for persistence."""
+
+    scan_type: str  # food | beverage | water
+    items: list[dict] = []
+    calories: int = 0
+    protein_grams: int = 0
+    carb_grams: int = 0
+    fiber_grams: int = 0
+    water_ounces: int = 0
+    model: str | None = None
+    prompt_version: str | None = None
+
+
+class DayTotals(BaseModel):
+    """The user's nutrition_days row after the log was applied."""
+
+    day: str
+    calories: int
+    protein_grams: int
+    carb_grams: int
+    fiber_grams: int
+    water_ounces: int
+
+
 class HealthResponse(BaseModel):
     status: str
     provider: str | None  # "openai" | "groq"

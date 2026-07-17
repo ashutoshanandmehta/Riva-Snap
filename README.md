@@ -79,6 +79,43 @@ Response essentials:
   `water_ounces`; beverages contribute calories/macros instead.
 - `latency`: per-stage ms; `model`, `prompt_version` for tuning attribution
 
+### `GET /v1/config`
+
+Client bootstrap info: whether the backend is enabled, plus the Supabase URL
+and anon key for the login flow.
+
+### `POST /v1/log` (JSON, sign-in required)
+
+Saves an accepted scan. Body carries the scan type, items, and the delta
+fields from the scan response. Writes one `food_entries` row and increments
+the user's `nutrition_days` totals in one transaction, then returns the
+updated day totals.
+
+## Backend (Supabase)
+
+The service persists accepted logs to Supabase when three env vars are set:
+`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`
+(Dashboard, Project Settings, API). With them set, `/v1/scan` and `/v1/log`
+require a signed-in user, and the web tester shows an email code login.
+Without them the service runs in the old open, stateless mode.
+
+Setup:
+
+1. Create a free project at supabase.com.
+2. Apply `supabase/migrations/0001_nutrition.sql` (paste into the SQL Editor
+   and run, or run it over the direct Postgres connection). It creates the
+   nutrition tables from the Riva schema, a `food_entries` history table,
+   and the `log_scan` function that does the atomic write.
+3. Put the three values in `.env` (and on Render for the deployed service).
+
+Notes:
+
+- Sign-in is an email code (OTP). Supabase's built-in email service allows
+  only a few OTP emails per hour per project, which is fine for testing.
+- Writes are server-authoritative: the client only authenticates, and the
+  service verifies the token and calls `log_scan` with the service role.
+- Only plain water fills `water_ounces`. Beverages log calories and macros.
+
 ## Tuning loop
 
 1. Drop photos into `eval/images/`, label them in `eval/golden.jsonl`
@@ -100,3 +137,4 @@ calorie MAPE ≤ 25%, scan_type accuracy ≥ 95%, FDC match ≥ 60%, p95 ≤ 6 s
 | `FDC_API_KEY` | USDA FoodData Central key (`DEMO_KEY` for smoke tests) |
 | `RIVA_SCAN_MODEL` | optional model override; empty = auto-resolve best available |
 | `RIVA_SCAN_DEBUG` | default debug payloads on/off |
+| `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | enable sign-in and persistent logging (all three or none) |

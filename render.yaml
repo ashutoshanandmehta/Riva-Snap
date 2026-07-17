@@ -17,3 +17,10 @@ services:
       # Keep debug payloads on during the tuning phase.
       - key: RIVA_SCAN_DEBUG
         value: "true"
+      # Supabase backend (sign-in + logging). Set all three or none.
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

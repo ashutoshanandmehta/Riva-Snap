@@ -2,7 +2,7 @@
 
 Riva Snap is the food and water scanning model for the Riva GLP-1 companion app. You take one photo, and it tells you the dish, the portion size based on the plate, the calories, and the nutrients. It is tuned for US foods and grounded in USDA data.
 
-It is built as a stateless pipeline service. There is no auth and no database. This is intentional, so the model can be tested and tuned on its own before we integrate it into the iOS app.
+The scan pipeline itself is stateless, but the service now integrates the Riva backend: users sign in with a Supabase email code, and accepting a scan writes a per-meal history row plus the daily totals to Postgres.
 
 ## 1. System context
 
@@ -24,17 +24,20 @@ flowchart LR
         FDC["USDA FoodData Central<br/>search API"]
     end
 
-    DB[("Supabase Postgres<br/>nutrition_days / food_entries<br/>(future, no writes today)")]
+    SB[("Supabase<br/>Auth + Postgres<br/>profiles, nutrition_days, food_entries")]
 
     PHONE --> WEB
     PHONE --> API
+    PHONE -- "email code sign-in<br/>(supabase-js)" --> SB
     IOS -. "after validation gate" .-> API
     API --> LLM
     API --> FDC
-    API -. "nutrition_day_delta<br/>(contract only)" .-> DB
+    API -- "verify token, then log_scan RPC<br/>(service role)" --> SB
 ```
 
-The important idea here: the service never writes to a database, but its response already matches the Riva database schema. The `nutrition_days` table stores integer calories, protein, carbs, fiber, and water in ounces. The scan response returns a `nutrition_day_delta` block with exactly those fields. When the model is accurate enough, the backend can consume it as is. Integration becomes plumbing, not a redesign.
+Two ideas matter here. First, the scan response's `nutrition_day_delta` block matches the `nutrition_days` table exactly (integer calories, protein, carbs, fiber, and water in ounces), so persistence is a pass-through, not a translation. Second, writes are server-authoritative: the client only authenticates. The service verifies the user's token with Supabase Auth, then calls the `log_scan` Postgres function with the service role key. That function computes the user's local calendar day from their profile timezone, inserts a `food_entries` history row, and increments the day's `nutrition_days` totals in one transaction. Row Level Security keeps every user's data isolated, and clients have no write path of their own.
+
+When the Supabase env vars are absent the service falls back to its original open, stateless mode, which keeps local development and the eval harness working without a database.
 
 ## 2. Scan pipeline
 

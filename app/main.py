@@ -9,17 +9,20 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 
-from . import grounding, preprocess, vision
+from . import backend, grounding, preprocess, vision
 from .config import settings
 from .schemas import (
+    BackendConfig,
+    DayTotals,
     ExtendedNutrients,
     HealthResponse,
     LatencyBreakdown,
+    LogRequest,
     NutritionDayDelta,
     ScanDebug,
     ScanItem,
@@ -62,6 +65,45 @@ def _llm() -> tuple[OpenAI, str]:
     return _client, _model
 
 
+def _authenticate(authorization: str | None) -> str | None:
+    """Gate for API calls. Returns the user id when the backend is
+    configured; None in open stateless mode (no Supabase env set)."""
+    config = settings()
+    if not backend.is_configured(config):
+        return None
+    if not authorization or not authorization.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Sign in to continue.")
+    return backend.verify_token(config, authorization.split(" ", 1)[1])
+
+
+@app.get("/v1/config", response_model=BackendConfig)
+def client_config() -> BackendConfig:
+    """Bootstrap info for the web tester (anon key is public by design)."""
+    config = settings()
+    enabled = backend.is_configured(config)
+    return BackendConfig(
+        backend_enabled=enabled,
+        supabase_url=config.supabase_url or None if enabled else None,
+        supabase_anon_key=config.supabase_anon_key or None if enabled else None,
+    )
+
+
+@app.post("/v1/log", response_model=DayTotals)
+def log(request: LogRequest, authorization: str | None = Header(default=None)) -> DayTotals:
+    """Persists an accepted scan and returns the updated day totals."""
+    config = settings()
+    user_id = _authenticate(authorization)
+    if user_id is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Logging needs the Supabase backend. Set SUPABASE_URL and keys in .env.",
+        )
+    if request.scan_type not in ("food", "beverage", "water"):
+        raise HTTPException(status_code=400, detail="Nothing loggable in this scan.")
+    totals = backend.log_scan(config, user_id, request.model_dump())
+    return DayTotals(**totals)
+
+
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     config = settings()
@@ -87,9 +129,13 @@ def scan(
     hint: str | None = Form(default=None),
     mode: str = Form(default="auto"),
     debug: bool | None = Form(default=None),
+    authorization: str | None = Header(default=None),
 ) -> ScanResponse:
     if mode not in ("auto", "food", "water"):
         raise HTTPException(status_code=400, detail="mode must be auto, food, or water")
+    # When the backend is configured, scanning requires sign-in. This also
+    # keeps the public Render URL from burning the shared LLM quota.
+    _authenticate(authorization)
     config = settings()
     include_debug = config.riva_scan_debug if debug is None else debug
     started = time.monotonic()
