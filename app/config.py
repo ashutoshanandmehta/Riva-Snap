@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -22,6 +23,19 @@ class Settings(BaseSettings):
     riva_scan_debug: bool = True
 
     prompt_version: str = "v1"
+
+    @field_validator(
+        "openai_api_key", "groq_api_key", "fdc_api_key",
+        "supabase_url", "supabase_anon_key", "supabase_service_role_key",
+        mode="before",
+    )
+    @classmethod
+    def strip_whitespace(cls, value: str) -> str:
+        # Keys and URLs pasted into dashboards often pick up line wraps or
+        # stray spaces, which become illegal HTTP header values.
+        if isinstance(value, str):
+            return "".join(value.split()).rstrip("/")
+        return value
 
 
 @lru_cache
