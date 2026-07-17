@@ -6,3 +6,4 @@ eval/images/*
 !eval/images/.gitkeep
 eval/reports/*
 !eval/reports/.gitkeep
+.git-snap/
