@@ -48,14 +48,16 @@ def verify_token(config: Settings, token: str) -> str:
 
 def log_scan(config: Settings, user_id: str, entry: dict) -> dict:
     """Persists an accepted scan via the log_scan RPC; returns day totals."""
+    key = config.supabase_service_role_key
+    headers = {"apikey": key, "Content-Type": "application/json"}
+    if key.startswith("eyJ"):
+        # Legacy service_role keys are JWTs and also go in the Authorization
+        # header. New sb_secret_ keys must not: they are not JWTs.
+        headers["Authorization"] = f"Bearer {key}"
     try:
         response = _http.post(
             f"{config.supabase_url}/rest/v1/rpc/log_scan",
-            headers={
-                "apikey": config.supabase_service_role_key,
-                "Authorization": f"Bearer {config.supabase_service_role_key}",
-                "Content-Type": "application/json",
-            },
+            headers=headers,
             json={
                 "p_user_id": user_id,
                 "p_scan_type": entry["scan_type"],
