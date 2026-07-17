@@ -17,7 +17,11 @@ from openai import OpenAI
 from . import backend, grounding, preprocess, vision
 from .config import settings
 from .schemas import (
+    INJECTION_SITES,
+    SIDE_EFFECTS,
     BackendConfig,
+    CheckinLogRequest,
+    CheckinLogResult,
     DayTotals,
     DeviceSession,
     DeviceSessionRequest,
@@ -29,8 +33,15 @@ from .schemas import (
     ScanDebug,
     ScanItem,
     ScanResponse,
+    ShotLogRequest,
+    ShotLogResult,
+    SideEffectItem,
+    SideEffectsLogRequest,
+    SideEffectsLogResult,
     Totals,
     WaterResult,
+    WeightLogRequest,
+    WeightLogResult,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -122,6 +133,79 @@ def log(request: LogRequest, authorization: str | None = Header(default=None)) -
         raise HTTPException(status_code=400, detail="Nothing loggable in this scan.")
     totals = backend.log_scan(config, user_id, request.model_dump())
     return DayTotals(**totals)
+
+
+def _require_user(authorization: str | None) -> str:
+    """Auth for the logging endpoints, which cannot run in open mode."""
+    user_id = _authenticate(authorization)
+    if user_id is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Logging needs the Supabase backend. Set SUPABASE_URL and keys in .env.",
+        )
+    return user_id
+
+
+@app.post("/v1/log/weight", response_model=WeightLogResult)
+def log_weight(
+    request: WeightLogRequest, authorization: str | None = Header(default=None)
+) -> WeightLogResult:
+    user_id = _require_user(authorization)
+    if not (20 <= request.pounds <= 1500):
+        raise HTTPException(status_code=400, detail="Enter a weight between 20 and 1500 lbs.")
+    row = backend.log_weight(settings(), user_id, round(request.pounds, 2), request.measured_at)
+    return WeightLogResult(**row)
+
+
+@app.post("/v1/log/shot", response_model=ShotLogResult)
+def log_shot(
+    request: ShotLogRequest, authorization: str | None = Header(default=None)
+) -> ShotLogResult:
+    user_id = _require_user(authorization)
+    if not request.medication_name.strip():
+        raise HTTPException(status_code=400, detail="Enter the medication name.")
+    if not (0 < request.dose_mg <= 100):
+        raise HTTPException(status_code=400, detail="Enter a dose between 0 and 100 mg.")
+    if request.injection_site not in INJECTION_SITES:
+        raise HTTPException(status_code=400, detail="Unknown injection site.")
+    if request.comfort_rating is not None and not (1 <= request.comfort_rating <= 5):
+        raise HTTPException(status_code=400, detail="Comfort rating is 1 to 5.")
+    entry = request.model_dump()
+    entry["medication_name"] = request.medication_name.strip()
+    row = backend.log_shot(settings(), user_id, entry)
+    return ShotLogResult(**row)
+
+
+@app.post("/v1/log/side-effects", response_model=SideEffectsLogResult)
+def log_side_effects(
+    request: SideEffectsLogRequest, authorization: str | None = Header(default=None)
+) -> SideEffectsLogResult:
+    user_id = _require_user(authorization)
+    for item in request.effects:
+        if item.effect not in SIDE_EFFECTS:
+            raise HTTPException(status_code=400, detail=f"Unknown side effect: {item.effect}")
+        if not (1 <= item.severity <= 5):
+            raise HTTPException(status_code=400, detail="Severity is 1 to 5.")
+    rows = backend.log_side_effects(
+        settings(), user_id,
+        [item.model_dump() for item in request.effects],
+        request.note,
+    )
+    return SideEffectsLogResult(
+        log_date=rows[0]["log_date"] if rows else None,
+        effects=[SideEffectItem(effect=r["effect"], severity=r["severity"]) for r in rows],
+    )
+
+
+@app.post("/v1/log/checkin", response_model=CheckinLogResult)
+def log_checkin(
+    request: CheckinLogRequest, authorization: str | None = Header(default=None)
+) -> CheckinLogResult:
+    user_id = _require_user(authorization)
+    row = backend.log_checkin(
+        settings(), user_id, request.question_id.strip(), request.option_code.strip()
+    )
+    return CheckinLogResult(**row)
 
 
 @app.get("/healthz", response_model=HealthResponse)

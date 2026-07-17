@@ -111,33 +111,81 @@ def device_session(config: Settings, device_id: str) -> dict:
     }
 
 
-def log_scan(config: Settings, user_id: str, entry: dict) -> dict:
-    """Persists an accepted scan via the log_scan RPC; returns day totals."""
+def _rpc(config: Settings, function: str, params: dict) -> list[dict]:
+    """Calls a server-authoritative Postgres function with the service role."""
     try:
         response = _http.post(
-            f"{config.supabase_url}/rest/v1/rpc/log_scan",
+            f"{config.supabase_url}/rest/v1/rpc/{function}",
             headers=_service_headers(config),
-            json={
-                "p_user_id": user_id,
-                "p_scan_type": entry["scan_type"],
-                "p_items": entry["items"],
-                "p_calories": entry["calories"],
-                "p_protein_grams": entry["protein_grams"],
-                "p_carb_grams": entry["carb_grams"],
-                "p_fiber_grams": entry["fiber_grams"],
-                "p_water_ounces": entry["water_ounces"],
-                "p_model": entry.get("model"),
-                "p_prompt_version": entry.get("prompt_version"),
-            },
+            json=params,
         )
     except httpx.HTTPError as error:
         raise HTTPException(status_code=503, detail=f"Backend unreachable: {error}") from error
 
     if response.status_code != 200:
-        logger.error("log_scan RPC failed: %s %s", response.status_code, response.text[:300])
+        logger.error("%s RPC failed: %s %s", function, response.status_code, response.text[:300])
         raise HTTPException(status_code=502, detail="Could not save the log. Try again.")
+    return response.json()
 
-    rows = response.json()
+
+def log_scan(config: Settings, user_id: str, entry: dict) -> dict:
+    """Persists an accepted scan via the log_scan RPC; returns day totals."""
+    rows = _rpc(config, "log_scan", {
+        "p_user_id": user_id,
+        "p_scan_type": entry["scan_type"],
+        "p_items": entry["items"],
+        "p_calories": entry["calories"],
+        "p_protein_grams": entry["protein_grams"],
+        "p_carb_grams": entry["carb_grams"],
+        "p_fiber_grams": entry["fiber_grams"],
+        "p_water_ounces": entry["water_ounces"],
+        "p_model": entry.get("model"),
+        "p_prompt_version": entry.get("prompt_version"),
+    })
     if not rows:
         raise HTTPException(status_code=502, detail="Log saved but totals were not returned.")
+    return rows[0]
+
+
+def log_weight(config: Settings, user_id: str, pounds: float, measured_at: str | None) -> dict:
+    rows = _rpc(config, "log_weight", {
+        "p_user_id": user_id,
+        "p_pounds": pounds,
+        "p_measured_at": measured_at,
+    })
+    if not rows:
+        raise HTTPException(status_code=502, detail="Weight saved but was not returned.")
+    return rows[0]
+
+
+def log_shot(config: Settings, user_id: str, entry: dict) -> dict:
+    rows = _rpc(config, "log_shot", {
+        "p_user_id": user_id,
+        "p_medication_name": entry["medication_name"],
+        "p_dose_mg": entry["dose_mg"],
+        "p_injection_site": entry["injection_site"],
+        "p_comfort_rating": entry.get("comfort_rating"),
+        "p_taken_at": entry.get("taken_at"),
+    })
+    if not rows:
+        raise HTTPException(status_code=502, detail="Shot saved but was not returned.")
+    return rows[0]
+
+
+def log_side_effects(config: Settings, user_id: str, effects: list[dict], note: str | None) -> list[dict]:
+    return _rpc(config, "log_side_effects", {
+        "p_user_id": user_id,
+        "p_effects": effects,
+        "p_note": note,
+    })
+
+
+def log_checkin(config: Settings, user_id: str, question_id: str, option_code: str) -> dict:
+    rows = _rpc(config, "log_checkin", {
+        "p_user_id": user_id,
+        "p_question_id": question_id,
+        "p_option_code": option_code,
+    })
+    if not rows:
+        raise HTTPException(status_code=502, detail="Answer saved but was not returned.")
     return rows[0]

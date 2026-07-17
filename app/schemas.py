@@ -128,6 +128,73 @@ class DeviceSession(BaseModel):
     email: str
 
 
+INJECTION_SITES = (
+    "right_arm", "left_arm", "lower_left_abs",
+    "lower_right_abs", "right_thigh", "left_thigh",
+)
+
+SIDE_EFFECTS = (
+    "nausea", "headache", "fatigue", "constipation", "diarrhea",
+    "dizziness", "bloating", "heartburn", "food_noise",
+)
+
+
+class WeightLogRequest(BaseModel):
+    pounds: float
+    measured_at: str | None = None
+
+
+class WeightLogResult(BaseModel):
+    weight_id: str
+    pounds: float
+    dose_mg: float | None
+    measured_at: str
+
+
+class ShotLogRequest(BaseModel):
+    medication_name: str
+    dose_mg: float
+    injection_site: str
+    comfort_rating: int | None = None
+    taken_at: str | None = None
+
+
+class ShotLogResult(BaseModel):
+    shot_id: str
+    medication_name: str
+    dose_mg: float
+    taken_at: str
+    injection_site: str
+
+
+class SideEffectItem(BaseModel):
+    effect: str
+    severity: int
+
+
+class SideEffectsLogRequest(BaseModel):
+    effects: list[SideEffectItem]
+    note: str | None = None
+
+
+class SideEffectsLogResult(BaseModel):
+    log_date: str | None
+    effects: list[SideEffectItem]
+
+
+class CheckinLogRequest(BaseModel):
+    question_id: str
+    option_code: str
+
+
+class CheckinLogResult(BaseModel):
+    checkin_date: str
+    question_id: str
+    option_code: str
+    label: str
+    value: int
+
+
 class DayTotals(BaseModel):
     """The user's nutrition_days row after the log was applied."""
 
