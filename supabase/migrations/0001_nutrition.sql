@@ -266,6 +266,7 @@ RETURNS TABLE (
   carb_grams integer, fiber_grams integer, water_ounces integer
 )
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = public AS $$
+#variable_conflict use_column
 DECLARE
   v_tz  text;
   v_day date;
