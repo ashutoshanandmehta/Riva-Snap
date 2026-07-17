@@ -128,7 +128,7 @@ The acceptance gate for iOS integration: at least 80% name match, at most 25% ca
 
 ## 7. Design principles
 
-- **Stateless now, database-shaped always.** No persistence until the bridge-program schema settles, but the response contract already speaks the schema's language.
+- **Stateless pipeline, database-shaped contract.** The scan itself stores nothing, and its response already speaks the schema's language, so persistence is a single pass-through call to `log_scan`.
 - **One SDK, two providers.** Groq and OpenAI both work through the OpenAI SDK and the same Chat Completions call. The provider is decided by which key exists in `.env`.
 - **Grounded numbers beat clever numbers.** The LLM identifies and measures. USDA prices the nutrients whenever a match exists, and the UI is honest about which path produced each item.
 - **Fail soft.** A USDA outage, a rejected schema, or an unreadable image degrades to a usable answer or a clear error. It never becomes a silently wrong log.
