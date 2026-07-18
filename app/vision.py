@@ -24,7 +24,9 @@ GROQ_BASE_URL = "https://api.groq.com/openai/v1"
 # are substring tokens (their ids carry org prefixes and revision suffixes).
 OPENAI_PREFERENCE = ["gpt-5.2", "gpt-5.1", "gpt-5", "gpt-4.1", "gpt-4o"]
 OPENAI_FALLBACK = "gpt-4o"
-GROQ_PREFERENCE_TOKENS = ["llama-4-maverick", "llama-4-scout"]
+# Groq rotates preview models: Llama 4 vision vanished from the account in
+# July 2026, leaving Qwen 3.6 as the vision-capable option there.
+GROQ_PREFERENCE_TOKENS = ["llama-4-maverick", "llama-4-scout", "qwen3.6", "qwen3"]
 
 # Strict Structured Output schema for the vision call.
 SCAN_SCHEMA: dict = {
@@ -136,7 +138,9 @@ def resolve_model(client: OpenAI, provider: str, override: str) -> str:
                 if token in model_id:
                     return model_id
         raise RuntimeError(
-            "No vision-capable Llama-4 model available on this Groq account. "
+            "No vision-capable model available on this Groq account. "
+            "Set OPENAI_API_KEY in .env to switch providers, or set "
+            "RIVA_SCAN_MODEL to a vision model you have access to. "
             f"Available: {', '.join(available) or 'none'}"
         )
 
@@ -175,6 +179,12 @@ def analyze_image(
     # Low temperature keeps portion/nutrition estimates consistent scan-to-scan.
     # OpenAI's reasoning models reject the parameter, so Groq-only.
     extra_params: dict = {"temperature": 0.2} if provider == "groq" else {}
+    if provider == "groq" and "qwen" in model:
+        # Qwen on Groq is a reasoning model. Left to think, it can spend the
+        # whole completion budget reasoning and emit empty content in JSON
+        # mode, so turn reasoning off for this structured perception task.
+        extra_params["extra_body"] = {"reasoning_effort": "none"}
+        extra_params["max_completion_tokens"] = 6000
 
     messages = [
         {"role": "system", "content": prompt_text},
@@ -227,6 +237,8 @@ def _parse(content: str | None) -> dict:
     if not content:
         raise ValueError("Empty response from vision model")
     text = content.strip()
-    # Defensive: strip markdown fences some models add in fallback mode.
+    # Defensive: reasoning models can leak think blocks, and some models add
+    # markdown fences in fallback mode.
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
     text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
     return json.loads(text)
