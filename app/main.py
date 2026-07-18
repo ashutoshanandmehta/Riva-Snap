@@ -7,18 +7,22 @@ mirrors the Riva database schema (see FOOD_SCAN_MODEL_PLAN.md).
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
+from datetime import date
 from pathlib import Path
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAI
 
 from . import backend, grounding, preprocess, vision
 from .config import settings
 from .schemas import (
+    GENDERS,
     INJECTION_SITES,
     SIDE_EFFECTS,
+    AccountDeleteResult,
     BackendConfig,
     CheckinLogRequest,
     CheckinLogResult,
@@ -26,20 +30,30 @@ from .schemas import (
     DeviceSession,
     DeviceSessionRequest,
     ExtendedNutrients,
+    GoalsUpdateRequest,
+    GoalsUpdateResult,
     HealthResponse,
     LatencyBreakdown,
     LogRequest,
+    MeResponse,
     NutritionDayDelta,
+    PlanUpdateRequest,
+    PlanUpdateResult,
+    ProfileUpdateRequest,
+    ProfileUpdateResult,
     ScanDebug,
     ScanItem,
     ScanResponse,
+    ShotListResult,
     ShotLogRequest,
     ShotLogResult,
     SideEffectItem,
+    SideEffectListResult,
     SideEffectsLogRequest,
     SideEffectsLogResult,
     Totals,
     WaterResult,
+    WeightListResult,
     WeightLogRequest,
     WeightLogResult,
 )
@@ -206,6 +220,125 @@ def log_checkin(
         settings(), user_id, request.question_id.strip(), request.option_code.strip()
     )
     return CheckinLogResult(**row)
+
+
+@app.get("/v1/me", response_model=MeResponse)
+def me(authorization: str | None = Header(default=None)) -> MeResponse:
+    """Profile, nutrition goals, health goals, and the active plan."""
+    user_id = _require_user(authorization)
+    return MeResponse(**backend.get_me(settings(), user_id))
+
+
+@app.post("/v1/profile", response_model=ProfileUpdateResult)
+def update_profile(
+    request: ProfileUpdateRequest, authorization: str | None = Header(default=None)
+) -> ProfileUpdateResult:
+    user_id = _require_user(authorization)
+    fields = request.model_dump(exclude_unset=True)
+    if "name" in fields:
+        if not (fields["name"] or "").strip():
+            raise HTTPException(status_code=400, detail="Enter a name.")
+        fields["name"] = fields["name"].strip()
+    if "timezone" in fields:
+        if not (fields["timezone"] or "").strip():
+            raise HTTPException(status_code=400, detail="Enter a timezone.")
+        fields["timezone"] = fields["timezone"].strip()
+    if fields.get("gender") is not None and fields["gender"] not in GENDERS:
+        raise HTTPException(status_code=400, detail="Unknown gender option.")
+    if fields.get("date_of_birth") is not None:
+        try:
+            date.fromisoformat(fields["date_of_birth"])
+        except ValueError as error:
+            raise HTTPException(
+                status_code=400, detail="Date of birth must be YYYY-MM-DD."
+            ) from error
+    for key, label in (("start_weight", "start weight"), ("goal_weight", "goal weight")):
+        value = fields.get(key)
+        if value is not None and not (20 <= value <= 1500):
+            raise HTTPException(
+                status_code=400, detail=f"Enter a {label} between 20 and 1500 lbs."
+            )
+    height = fields.get("height_inches")
+    if height is not None and not (20 <= height <= 120):
+        raise HTTPException(status_code=400, detail="Enter a height between 20 and 120 inches.")
+    profile = backend.update_profile(settings(), user_id, fields)
+    return ProfileUpdateResult(profile=profile)
+
+
+@app.post("/v1/goals", response_model=GoalsUpdateResult)
+def update_goals(
+    request: GoalsUpdateRequest, authorization: str | None = Header(default=None)
+) -> GoalsUpdateResult:
+    user_id = _require_user(authorization)
+    fields = request.model_dump(exclude_unset=True)
+    for value in fields.values():
+        if value is None or not (0 <= value <= 2000):
+            raise HTTPException(status_code=400, detail="Enter a goal between 0 and 2000.")
+    goals = backend.update_goals(settings(), user_id, fields)
+    return GoalsUpdateResult(nutrition_goals=goals)
+
+
+@app.post("/v1/plan", response_model=PlanUpdateResult)
+def update_plan(
+    request: PlanUpdateRequest, authorization: str | None = Header(default=None)
+) -> PlanUpdateResult:
+    user_id = _require_user(authorization)
+    fields = request.model_dump(exclude_unset=True)
+    if "name" in fields:
+        if not (fields["name"] or "").strip():
+            raise HTTPException(status_code=400, detail="Enter the medication name.")
+        fields["name"] = fields["name"].strip()
+    if "current_dose_mg" in fields and (
+        fields["current_dose_mg"] is None or not (0 < fields["current_dose_mg"] <= 100)
+    ):
+        raise HTTPException(status_code=400, detail="Enter a dose between 0 and 100 mg.")
+    if "cadence_days" in fields and (
+        fields["cadence_days"] is None or not (1 <= fields["cadence_days"] <= 90)
+    ):
+        raise HTTPException(status_code=400, detail="Cadence is 1 to 90 days.")
+    plan = backend.upsert_plan(settings(), user_id, fields)
+    return PlanUpdateResult(plan=plan)
+
+
+@app.get("/v1/weights", response_model=WeightListResult)
+def list_weights(
+    limit: int = 60, authorization: str | None = Header(default=None)
+) -> WeightListResult:
+    user_id = _require_user(authorization)
+    rows = backend.list_weights(settings(), user_id, max(1, min(limit, 200)))
+    return WeightListResult(entries=rows)
+
+
+@app.get("/v1/shots", response_model=ShotListResult)
+def list_shots(
+    limit: int = 60, authorization: str | None = Header(default=None)
+) -> ShotListResult:
+    user_id = _require_user(authorization)
+    rows = backend.list_shots(settings(), user_id, max(1, min(limit, 200)))
+    return ShotListResult(entries=rows)
+
+
+@app.get("/v1/side-effects", response_model=SideEffectListResult)
+def list_side_effects(
+    days: int = 30, authorization: str | None = Header(default=None)
+) -> SideEffectListResult:
+    user_id = _require_user(authorization)
+    logs = backend.list_side_effects(settings(), user_id, max(1, min(days, 90)))
+    return SideEffectListResult(logs=logs)
+
+
+@app.get("/v1/export")
+def export_data(authorization: str | None = Header(default=None)) -> JSONResponse:
+    """The user's complete data as one JSON object, for portability."""
+    user_id = _require_user(authorization)
+    return JSONResponse(backend.export_user(settings(), user_id))
+
+
+@app.delete("/v1/account", response_model=AccountDeleteResult)
+def delete_account(authorization: str | None = Header(default=None)) -> AccountDeleteResult:
+    user_id = _require_user(authorization)
+    backend.delete_account(settings(), user_id)
+    return AccountDeleteResult(deleted=True)
 
 
 @app.get("/healthz", response_model=HealthResponse)

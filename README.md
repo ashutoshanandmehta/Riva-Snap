@@ -128,6 +128,50 @@ severity 1 to 5.
 (seeded: mood, energy, sleep, nausea, appetite). The app's sleep quality
 sheet uses `question_id: "sleep"`.
 
+### `GET /v1/me`
+
+Everything the Profile tab needs in one call: the profile row, nutrition
+goals, health goal flags, and the active medication plan (null when the
+user has none yet).
+
+### `POST /v1/profile` (JSON)
+
+Any subset of name, date_of_birth, gender, clinician_name, start_weight,
+goal_weight, height_inches, timezone. Returns the full updated profile.
+
+### `POST /v1/goals` (JSON)
+
+Any subset of protein_goal, carb_goal, fiber_goal, water_goal (each 0 to
+2000). Returns the updated goals.
+
+### `POST /v1/plan` (JSON)
+
+Any subset of name, current_dose_mg, cadence_days, reminder_description.
+Updates the active medication plan, creating one with sensible defaults
+on first use. Returns the full plan.
+
+### `GET /v1/weights?limit=60`
+
+Weight entries newest first, soft deletes excluded. Limit 1 to 200.
+
+### `GET /v1/shots?limit=60`
+
+Shot history newest first, soft deletes excluded. Limit 1 to 200.
+
+### `GET /v1/side-effects?days=30`
+
+Daily side effect logs for the window, newest first, each day carrying
+its effects and severities plus the note. Days 1 to 90.
+
+### `GET /v1/export`
+
+One JSON object with every row the user owns, for data portability.
+
+### `DELETE /v1/account`
+
+Deletes the auth user via the admin API; every table cascades. Returns
+`{"deleted": true}`.
+
 ## Backend (Supabase)
 
 Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`

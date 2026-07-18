@@ -213,3 +213,128 @@ class HealthResponse(BaseModel):
     prompt_version: str
     llm_key_present: bool
     fdc_key_present: bool
+
+
+GENDERS = ("female", "male", "non-binary", "prefer-not-to-say")
+
+
+class Profile(BaseModel):
+    name: str
+    date_of_birth: str | None
+    gender: str | None
+    clinician_name: str | None
+    start_weight: float | None
+    goal_weight: float | None
+    height_inches: float | None
+    timezone: str
+
+
+class NutritionGoals(BaseModel):
+    protein_goal: int
+    carb_goal: int
+    fiber_goal: int
+    water_goal: int
+
+
+class HealthGoals(BaseModel):
+    glp1_support: bool
+    weight_mgmt: bool
+    nutrition_diet: bool
+    muscle_preserve: bool
+    exercise_move: bool
+    sleep_recovery: bool
+
+
+class MedicationPlan(BaseModel):
+    name: str
+    current_dose_mg: float
+    cadence_days: int
+    dose_frequency: str
+    reminder_description: str | None
+    start_date: str | None
+
+
+class MeResponse(BaseModel):
+    """Everything the Profile tab renders in one call."""
+
+    profile: Profile
+    nutrition_goals: NutritionGoals
+    health_goals: HealthGoals
+    plan: MedicationPlan | None
+
+
+class ProfileUpdateRequest(BaseModel):
+    """Any subset of the profile fields; omitted fields keep their value."""
+
+    name: str | None = None
+    date_of_birth: str | None = None
+    gender: str | None = None
+    clinician_name: str | None = None
+    start_weight: float | None = None
+    goal_weight: float | None = None
+    height_inches: float | None = None
+    timezone: str | None = None
+
+
+class ProfileUpdateResult(BaseModel):
+    profile: Profile
+
+
+class GoalsUpdateRequest(BaseModel):
+    protein_goal: int | None = None
+    carb_goal: int | None = None
+    fiber_goal: int | None = None
+    water_goal: int | None = None
+
+
+class GoalsUpdateResult(BaseModel):
+    nutrition_goals: NutritionGoals
+
+
+class PlanUpdateRequest(BaseModel):
+    name: str | None = None
+    current_dose_mg: float | None = None
+    cadence_days: int | None = None
+    reminder_description: str | None = None
+
+
+class PlanUpdateResult(BaseModel):
+    plan: MedicationPlan
+
+
+class WeightEntry(BaseModel):
+    id: str
+    pounds: float
+    dose_mg: float | None
+    measured_at: str
+
+
+class WeightListResult(BaseModel):
+    entries: list[WeightEntry]
+
+
+class ShotEntry(BaseModel):
+    id: str
+    medication_name: str
+    dose_mg: float
+    taken_at: str
+    injection_site: str
+    comfort_rating: int | None
+
+
+class ShotListResult(BaseModel):
+    entries: list[ShotEntry]
+
+
+class SideEffectDayLog(BaseModel):
+    log_date: str
+    note: str | None
+    effects: list[SideEffectItem]
+
+
+class SideEffectListResult(BaseModel):
+    logs: list[SideEffectDayLog]
+
+
+class AccountDeleteResult(BaseModel):
+    deleted: bool
