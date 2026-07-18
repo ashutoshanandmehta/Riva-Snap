@@ -1,17 +1,18 @@
-# Riva Scan Service
+# Riva Snap (backend)
 
-Take a photo of food or water and get back the dish, the portion, the
-calories, and the nutrients. Tuned for US foods and grounded in USDA
-FoodData Central. See `ARCHITECTURE.md` for the system design, diagrams, tuning
-surfaces, and the accuracy gate for iOS integration.
+My backend for Riva: take a photo of food or water and get back the dish,
+the portion, the calories, and the nutrients, plus the logging APIs behind
+every quick-log flow in the app (weight, shots, protein, side effects,
+sleep). Tuned for US foods and grounded in USDA FoodData Central. The
+system design, diagrams, and tuning surfaces are in `ARCHITECTURE.md`.
 
 ## Run
 
 ```sh
-cd scan-service
-uv venv --python 3.12 .venv          # uv avoids the broken Homebrew Python 3.14
+cd backend
+uv venv --python 3.12 .venv          # uv avoids my broken Homebrew Python 3.14
 uv pip install -r requirements.txt --python .venv/bin/python
-# add OPENAI_API_KEY to .env first
+# fill .env from .env.example first (Groq or OpenAI key, FDC key, Supabase)
 .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
@@ -19,109 +20,129 @@ Smoke test:
 
 ```sh
 curl http://localhost:8000/healthz
-curl -F image=@path/to/food-photo.jpg http://localhost:8000/v1/scan | python3 -m json.tool
 ```
 
-## Deploy on Render
+## Mobile web tester
 
-The repo ships a `render.yaml` blueprint. In the Render dashboard choose
-New, then Blueprint, pick this repo, and Render reads the config and asks
-for two secrets: `GROQ_API_KEY` and `FDC_API_KEY`. The service comes up at
-`https://riva-snap.onrender.com` (or similar) with the web tester at the
-root and the API at `/v1/scan`.
+The service serves my phone-optimized tester at its root. On any phone on
+the same Wi-Fi:
+
+```
+http://<my Mac's LAN IP>:8000        # ipconfig getifaddr en0
+```
+
+Capture or pick a photo, Scan, review the result card (MATCHED badge,
+Calories + Protein, alternatives, Edit/Accept), with a raw JSON panel for
+tuning. When Supabase is configured the tester asks for an email code
+sign-in and Accept really logs.
+
+## Deploy
+
+Render runs this service at https://riva-snap.onrender.com via the
+`render.yaml` blueprint. Deploys come from the Riva-Snap mirror repo that
+Render watches; I sync it whenever this folder changes. Secrets live in
+Render env vars, never in the repo.
 
 Notes:
 
 - The free plan sleeps after about 15 minutes of no traffic. The first
   request after that takes 30 to 60 seconds to wake the service.
-- The URL is public and unauthenticated in this phase, which is fine for
-  tuning but means anyone with the link can spend your Groq quota. Ask for
-  a simple access key gate before sharing the link widely.
-
-## Mobile web tester
-
-The service serves a phone-optimized tester at its root. On any phone on the
-same Wi-Fi, open:
-
-```
-http://<your Mac's LAN IP>:8000        # ipconfig getifaddr en0
-```
-
-Capture or pick a photo → Scan → result card (MATCHED badge, Calories +
-Protein, alternatives, Edit/Accept) + raw JSON panel for tuning.
+- Scanning and logging require a session, so strangers with the URL cannot
+  spend the LLM quota.
 
 ## API
 
+All endpoints below except `/healthz`, `/v1/config`, and
+`/v1/device/session` require `Authorization: Bearer <access token>` once
+Supabase is configured. Without Supabase env vars the service runs in an
+open stateless mode: scanning works, logging is disabled.
+
 ### `GET /healthz`
 
-Reports resolved vision model, prompt version, and key presence.
+Resolved vision model, prompt version, and key presence.
+
+### `GET /v1/config`
+
+Client bootstrap: whether the backend is enabled, plus the Supabase URL
+and anon key for the web tester's login (public by design).
+
+### `POST /v1/device/session` (JSON)
+
+Interim identity while the product has no sign-in screen. The app sends a
+stable random `device_id` and gets a session for a silently provisioned
+account (synthetic email, password derived server side from the service
+role key). Replaced by the real sign-in when the landing page ships.
 
 ### `POST /v1/scan` (multipart/form-data)
 
 | field | type | notes |
 |---|---|---|
 | `image` | file | JPEG/PNG/HEIC photo (required) |
+| `mode`  | text | `auto` (default), `food`, or `water`: intent hint, never a filter |
 | `hint`  | text | optional context, e.g. "dinner at Chipotle" |
 | `debug` | bool | include raw model output + FDC query candidates |
 
 Response essentials:
 
-- `scan_type`: `food` \| `water` \| `beverage` \| `not_food`
+- `scan_type`: `food` | `water` | `beverage` | `not_food`
 - `plate`: container description used for portion calibration
-- `items[]`: name, `portion_desc`, `portion_grams`, confidence,
-  `calories`/`protein_grams`/`carb_grams`/`fiber_grams` (ints, DB-aligned),
-  `extended` (fat/sugar/sodium), `matched` + `fdc_id` when USDA-grounded,
-  `alternatives` for one-tap correction
-- `water`: container type, `volume_oz`, 8-oz `glasses`
-- `nutrition_day_delta`: exact increments for the app's `nutrition_days`
-  upsert (`calories`, `protein_grams`, `carb_grams`, `fiber_grams`,
-  `water_ounces`). Product rule: only `scan_type == "water"` fills
-  `water_ounces`; beverages contribute calories/macros instead.
-- `latency`: per-stage ms; `model`, `prompt_version` for tuning attribution
+- `items[]`: name, `portion_desc`, `portion_grams`, confidence, integer
+  calories/protein/carbs/fiber, `extended` (fat/sugar/sodium), `matched` +
+  `fdc_id` when USDA-grounded, `alternatives` for one-tap correction
+- `water`: container type, `volume_oz`, `volume_ml`, 8-oz `glasses`
+- `nutrition_day_delta`: the exact increments for the `nutrition_days`
+  upsert. Product rule: only plain water fills `water_ounces`; beverages
+  contribute calories and macros instead.
+- `mode_mismatch`: true when the photo disagrees with the chosen mode; the
+  delta always reflects the actual content
+- `latency` per stage; `model` and `prompt_version` for tuning attribution
 
-### `GET /v1/config`
+### `POST /v1/log` (JSON)
 
-Client bootstrap info: whether the backend is enabled, plus the Supabase URL
-and anon key for the login flow.
+Saves an accepted scan (or a manual protein add): one `food_entries`
+history row plus the `nutrition_days` increment in one transaction.
+Returns the updated day totals.
 
-### `POST /v1/log` (JSON, sign-in required)
+### `POST /v1/log/weight` (JSON)
 
-Saves an accepted scan. Body carries the scan type, items, and the delta
-fields from the scan response. Writes one `food_entries` row and increments
-the user's `nutrition_days` totals in one transaction, then returns the
-updated day totals.
+`{pounds}` inserts a `weights` row, snapshotting the current dose from the
+active medication plan for trend analysis.
 
-### `POST /v1/device/session` (JSON)
+### `POST /v1/log/shot` (JSON)
 
-Interim identity for the iOS app while it has no sign-in screen. The app
-sends a stable random `device_id` and gets back a session for a silently
-provisioned account (synthetic email, password derived server side from the
-service role key). Replaced by the real sign-in when the landing page ships.
+`{medication_name, dose_mg, injection_site, comfort_rating?}` inserts a
+`shots` row and syncs `medication_plans.current_dose_mg` in the same
+transaction (creating the plan on first shot). Sites: right_arm, left_arm,
+lower_left_abs, lower_right_abs, right_thigh, left_thigh.
+
+### `POST /v1/log/side-effects` (JSON)
+
+`{effects: [{effect, severity}]}` replaces today's set in
+`side_effect_logs` + items. Effects: nausea, headache, fatigue,
+constipation, diarrhea, dizziness, bloating, heartburn, food_noise;
+severity 1 to 5.
+
+### `POST /v1/log/checkin` (JSON)
+
+`{question_id, option_code}` answers one of today's check-in questions
+(seeded: mood, energy, sleep, nausea, appetite). The app's sleep quality
+sheet uses `question_id: "sleep"`.
 
 ## Backend (Supabase)
 
-The service persists accepted logs to Supabase when three env vars are set:
-`SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`
-(Dashboard, Project Settings, API). With them set, `/v1/scan` and `/v1/log`
-require a signed-in user, and the web tester shows an email code login.
-Without them the service runs in the old open, stateless mode.
+Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`
+in `.env` (and on Render). Apply the migrations from
+`supabase/migrations/` in order via the dashboard SQL Editor:
 
-Setup:
+1. `0001_nutrition.sql`: profiles, goals, nutrition_days, food_entries,
+   the signup provisioning trigger, and `log_scan`.
+2. `0002_logging.sql`: medication_plans, shots, weights, side effects,
+   check-ins with seeded questions, and the `log_*` functions.
 
-1. Create a free project at supabase.com.
-2. Apply `supabase/migrations/0001_nutrition.sql` (paste into the SQL Editor
-   and run, or run it over the direct Postgres connection). It creates the
-   nutrition tables from the Riva schema, a `food_entries` history table,
-   and the `log_scan` function that does the atomic write.
-3. Put the three values in `.env` (and on Render for the deployed service).
-
-Notes:
-
-- Sign-in is an email code (OTP). Supabase's built-in email service allows
-  only a few OTP emails per hour per project, which is fine for testing.
-- Writes are server-authoritative: the client only authenticates, and the
-  service verifies the token and calls `log_scan` with the service role.
-- Only plain water fills `water_ounces`. Beverages log calories and macros.
+Design rules I follow throughout: server-authoritative writes (clients
+only authenticate; all writes go through SECURITY DEFINER functions
+callable only by the service role), Row Level Security on every user
+table, soft deletes, and timezone-aware calendar days.
 
 ## Tuning loop
 
@@ -129,19 +150,21 @@ Notes:
    (see `golden.example.jsonl`). Aim for 30 to 50 photos covering home
    plates, restaurant meals, packaged foods, mixed dishes, water and
    other drinks in varied containers, and a few non-food negatives.
-2. `.venv/bin/python eval/run_eval.py` → report in `eval/reports/`.
+2. `.venv/bin/python eval/run_eval.py` writes a report to `eval/reports/`.
 3. Edit `prompts/scan_v2.md` + bump `prompt_version` in `app/config.py`
    (or change `RIVA_SCAN_MODEL` in `.env`), re-run, compare reports.
 
-Acceptance targets (gate for iOS integration): dish-name match ≥ 80%,
-calorie MAPE ≤ 25%, scan_type accuracy ≥ 95%, FDC match ≥ 60%, p95 ≤ 6 s.
+My acceptance targets: dish-name match at least 80%, calorie MAPE at most
+25%, scan_type accuracy at least 95%, FDC match at least 60%, p95 latency
+under 6 seconds.
 
 ## Configuration (`.env`)
 
 | var | meaning |
 |---|---|
+| `GROQ_API_KEY` | vision LLM (Llama 4 Scout); active provider today |
 | `OPENAI_API_KEY` | optional, switches the provider to OpenAI when set |
 | `FDC_API_KEY` | USDA FoodData Central key (`DEMO_KEY` for smoke tests) |
 | `RIVA_SCAN_MODEL` | optional model override; empty = auto-resolve best available |
 | `RIVA_SCAN_DEBUG` | default debug payloads on/off |
-| `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | enable sign-in and persistent logging (all three or none) |
+| `SUPABASE_URL` + `SUPABASE_ANON_KEY` + `SUPABASE_SERVICE_ROLE_KEY` | enable sessions and persistent logging (all three or none) |

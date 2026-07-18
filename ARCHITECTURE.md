@@ -1,8 +1,8 @@
 # Riva Snap Architecture
 
-Riva Snap is the food and water scanning model for the Riva GLP-1 companion app. You take one photo, and it tells you the dish, the portion size based on the plate, the calories, and the nutrients. It is tuned for US foods and grounded in USDA data.
+Riva Snap is my backend for the Riva GLP-1 companion app. Its centerpiece is the food and water scanner: you take one photo, and it tells you the dish, the portion size based on the plate, the calories, and the nutrients, tuned for US foods and grounded in USDA data. Around the scanner it carries the logging APIs for the rest of the app: weight, shots, protein, side effects, and sleep.
 
-The scan pipeline itself is stateless, but the service now integrates the Riva backend: users sign in with a Supabase email code, and accepting a scan writes a per-meal history row plus the daily totals to Postgres.
+The scan pipeline itself is stateless. Persistence lives in Supabase: accepting a scan writes a per-meal history row plus the daily totals to Postgres, and every quick log goes through its own server-side function. Identity today is a silent per-device account the iOS app provisions over `/v1/device/session`; the web tester uses an email code.
 
 ## 1. System context
 
@@ -10,13 +10,14 @@ The scan pipeline itself is stateless, but the service now integrates the Riva b
 flowchart LR
     subgraph Clients
         PHONE["Phone browser<br/>mobile web tester (web/)"]
-        IOS["Riva iOS app<br/>Snap to Scan Food (future)"]
+        IOS["Riva iOS app<br/>scanner + quick logs (live)"]
     end
 
-    subgraph SVC["scan-service, FastAPI (stateless)"]
+    subgraph SVC["backend, FastAPI (stateless)"]
         WEB["GET /<br/>static tester page"]
         API["POST /v1/scan"]
-        HZ["GET /healthz"]
+        LOG["POST /v1/log,<br/>/v1/log/weight, shot,<br/>side-effects, checkin"]
+        DEV["POST /v1/device/session"]
     end
 
     subgraph Providers["External providers"]
@@ -24,15 +25,18 @@ flowchart LR
         FDC["USDA FoodData Central<br/>search API"]
     end
 
-    SB[("Supabase<br/>Auth + Postgres<br/>profiles, nutrition_days, food_entries")]
+    SB[("Supabase<br/>Auth + Postgres<br/>profiles, nutrition_days, food_entries,<br/>weights, shots, side effects, checkins")]
 
     PHONE --> WEB
     PHONE --> API
     PHONE -- "email code sign-in<br/>(supabase-js)" --> SB
-    IOS -. "after validation gate" .-> API
+    IOS --> API
+    IOS --> LOG
+    IOS -- "device id in,<br/>session out" --> DEV
     API --> LLM
     API --> FDC
-    API -- "verify token, then log_scan RPC<br/>(service role)" --> SB
+    LOG -- "verify token, then log_* RPCs<br/>(service role)" --> SB
+    DEV -- "provision hidden account<br/>(admin API)" --> SB
 ```
 
 Two ideas matter here. First, the scan response's `nutrition_day_delta` block matches the `nutrition_days` table exactly (integer calories, protein, carbs, fiber, and water in ounces), so persistence is a pass-through, not a translation. Second, writes are server-authoritative: the client only authenticates. The service verifies the user's token with Supabase Auth, then calls the `log_scan` Postgres function with the service role key. That function computes the user's local calendar day from their profile timezone, inserts a `food_entries` history row, and increments the day's `nutrition_days` totals in one transaction. Row Level Security keeps every user's data isolated, and clients have no write path of their own.
@@ -60,7 +64,7 @@ What each stage does and why:
 
 1. **Preprocess.** Phones send huge photos. Fixing the rotation and downscaling to 1024px keeps each scan at roughly one cent and a few seconds, without hurting recognition.
 2. **Vision.** The model has two real jobs: name the foods and estimate the portions. The prompt tells it to use the plate or container size as a measuring reference and to assume US serving sizes. It also outputs nutrition numbers, but those are only a fallback. Structured output mode guarantees parseable JSON, and there is a retry path for providers that reject strict schemas.
-3. **Grounding.** This is where accuracy comes from. For each solid food item, the service searches USDA FoodData Central and scores the candidates. A match means the nutrients are recomputed from lab-measured per-100g values times the estimated grams. That is what the MATCHED badge means. The scoring has guards we learned from live testing: it penalizes wrong food forms like flour, dry, or babyfood (but not "raw", which is the correct form for fresh produce), and it prefers entries whose first word is the food itself, so "Oranges, raw" beats "Sherbet, orange". Lookups run in parallel. If USDA is down, the scan still works with model estimates.
+3. **Grounding.** This is where accuracy comes from. For each solid food item, the service searches USDA FoodData Central and scores the candidates. A match means the nutrients are recomputed from lab-measured per-100g values times the estimated grams. That is what the MATCHED badge means. The scoring has guards I learned from live testing: it penalizes wrong food forms like flour, dry, or babyfood (but not "raw", which is the correct form for fresh produce), and it prefers entries whose first word is the food itself, so "Oranges, raw" beats "Sherbet, orange". Lookups run in parallel. If USDA is down, the scan still works with model estimates.
 4. **Assemble.** Rounds everything to the database units, adds up totals, computes the delta, and flags a mode mismatch if the photo does not match what the user chose to log. One product rule lives here: only plain water fills `water_ounces`. A latte counts as calories, not hydration.
 
 ## 3. A scan, end to end
@@ -68,7 +72,7 @@ What each stage does and why:
 ```mermaid
 sequenceDiagram
     participant P as Phone (tester)
-    participant S as scan-service
+    participant S as backend
     participant V as Vision LLM (Groq)
     participant F as USDA FDC
 
@@ -89,7 +93,7 @@ sequenceDiagram
 
 The mode selector (Auto, Food, Water) is a hint about intent. It never forces an interpretation.
 
-We learned this the hard way. When the prompt told the model "the user intends to log food", it invented an entire chicken and rice dinner from a photo of a water glass. So now:
+I learned this the hard way. When the prompt told the model "the user intends to log food", it invented an entire chicken and rice dinner from a photo of a water glass. So now:
 
 - Food mode adds no bias to what the model sees. Water mode only asks it to pay extra attention to container volume.
 - The server compares what was actually detected against the mode the user picked, and sets `mode_mismatch` when they disagree. The tester shows a "Heads up" banner but renders the real content.
