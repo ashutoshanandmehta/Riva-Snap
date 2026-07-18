@@ -311,6 +311,23 @@ def update_goals(config: Settings, user_id: str, fields: dict) -> dict:
     return rows[0]
 
 
+HEALTH_GOAL_FIELDS = (
+    "glp1_support", "weight_mgmt", "nutrition_diet",
+    "muscle_preserve", "exercise_move", "sleep_recovery",
+)
+
+
+def update_health_goals(config: Settings, user_id: str, fields: dict) -> dict:
+    payload = {key: fields[key] for key in HEALTH_GOAL_FIELDS if key in fields}
+    if payload:
+        rows = _patch(config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS}, payload)
+    else:
+        rows = _select(config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS})
+    if not rows:
+        raise HTTPException(status_code=502, detail=_SAVE_DETAIL)
+    return rows[0]
+
+
 def upsert_plan(config: Settings, user_id: str, fields: dict) -> dict:
     """Updates the active medication plan, creating one on first use."""
     payload = {key: fields[key] for key in PLAN_FIELDS if key in fields}
@@ -373,6 +390,70 @@ def list_side_effects(config: Settings, user_id: str, days: int) -> list:
         {"log_date": log["log_date"], "note": log["note"], "effects": by_log.get(log["id"], [])}
         for log in logs
     ]
+
+
+def get_dashboard(config: Settings, user_id: str) -> dict:
+    """Everything the app's dashboards need in one round trip: profile,
+    goals, plan, this week's nutrition days, weight and shot history,
+    today's side effects, and the week's sleep check-ins."""
+    me = get_me(config, user_id)
+    today = date.today().isoformat()
+    week_ago = (date.today() - timedelta(days=7)).isoformat()
+
+    week_nutrition = _select(config, "nutrition_days", {
+        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
+        "day": f"gte.{week_ago}",
+        "select": "day,calories,protein_grams,carb_grams,fiber_grams,water_ounces",
+        "order": "day.desc",
+    })
+    today_row = next((row for row in week_nutrition if row["day"] == today), None)
+
+    weights = list_weights(config, user_id, 90)
+    shots = list_shots(config, user_id, 60)
+
+    effects_today = []
+    for log in list_side_effects(config, user_id, 1):
+        if log["log_date"] == today:
+            effects_today = log["effects"]
+
+    sleep_checkins: list[dict] = []
+    checkins = _select(config, "checkins", {
+        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
+        "checkin_date": f"gte.{week_ago}",
+        "select": "id,checkin_date", "order": "checkin_date.desc",
+    })
+    if checkins:
+        ids = ",".join(row["id"] for row in checkins)
+        answers = _select(config, "checkin_answers", {
+            "checkin_id": f"in.({ids})", "question_id": "eq.sleep",
+            "select": "checkin_id,option_code",
+        })
+        options = _select(config, "checkin_options", {
+            "question_id": "eq.sleep", "select": "code,label,value",
+        })
+        by_code = {opt["code"]: opt for opt in options}
+        by_checkin = {a["checkin_id"]: a["option_code"] for a in answers}
+        for row in checkins:
+            code = by_checkin.get(row["id"])
+            option = by_code.get(code or "")
+            if option:
+                sleep_checkins.append({
+                    "checkin_date": row["checkin_date"],
+                    "value": option["value"],
+                    "label": option["label"],
+                })
+
+    return {
+        "profile": me["profile"],
+        "nutrition_goals": me["nutrition_goals"],
+        "plan": me["plan"],
+        "today": today_row,
+        "week_nutrition": week_nutrition,
+        "weights": weights,
+        "shots": shots,
+        "side_effects_today": effects_today,
+        "sleep_checkins": sleep_checkins,
+    }
 
 
 def export_user(config: Settings, user_id: str) -> dict:

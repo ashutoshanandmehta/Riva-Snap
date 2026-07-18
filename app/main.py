@@ -32,6 +32,8 @@ from .schemas import (
     ExtendedNutrients,
     GoalsUpdateRequest,
     GoalsUpdateResult,
+    HealthGoalsUpdateRequest,
+    HealthGoalsUpdateResult,
     HealthResponse,
     LatencyBreakdown,
     LogRequest,
@@ -263,6 +265,25 @@ def update_profile(
         raise HTTPException(status_code=400, detail="Enter a height between 20 and 120 inches.")
     profile = backend.update_profile(settings(), user_id, fields)
     return ProfileUpdateResult(profile=profile)
+
+
+@app.get("/v1/dashboard")
+def dashboard(authorization: str | None = Header(default=None)) -> JSONResponse:
+    """One-call aggregate backing the app's Home, Medication, and Tracker
+    dashboards."""
+    user_id = _require_user(authorization)
+    return JSONResponse(backend.get_dashboard(settings(), user_id))
+
+
+@app.post("/v1/health-goals", response_model=HealthGoalsUpdateResult)
+def update_health_goals(
+    request: HealthGoalsUpdateRequest, authorization: str | None = Header(default=None)
+) -> HealthGoalsUpdateResult:
+    """Onboarding: which of the six program goals the user picked."""
+    user_id = _require_user(authorization)
+    fields = request.model_dump(exclude_unset=True)
+    goals = backend.update_health_goals(settings(), user_id, fields)
+    return HealthGoalsUpdateResult(health_goals=goals)
 
 
 @app.post("/v1/goals", response_model=GoalsUpdateResult)

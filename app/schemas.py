@@ -291,6 +291,19 @@ class GoalsUpdateResult(BaseModel):
     nutrition_goals: NutritionGoals
 
 
+class HealthGoalsUpdateRequest(BaseModel):
+    glp1_support: bool | None = None
+    weight_mgmt: bool | None = None
+    nutrition_diet: bool | None = None
+    muscle_preserve: bool | None = None
+    exercise_move: bool | None = None
+    sleep_recovery: bool | None = None
+
+
+class HealthGoalsUpdateResult(BaseModel):
+    health_goals: HealthGoals
+
+
 class PlanUpdateRequest(BaseModel):
     name: str | None = None
     current_dose_mg: float | None = None
