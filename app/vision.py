@@ -184,7 +184,9 @@ def analyze_image(
         # whole completion budget reasoning and emit empty content in JSON
         # mode, so turn reasoning off for this structured perception task.
         extra_params["extra_body"] = {"reasoning_effort": "none"}
-        extra_params["max_completion_tokens"] = 6000
+        # Groq's free tier TPM limiter counts prompt PLUS this allowance per
+        # request (8000 limit); keep the sum under it or every scan is 413.
+        extra_params["max_completion_tokens"] = 4000
 
     messages = [
         {"role": "system", "content": prompt_text},
@@ -220,9 +222,11 @@ def analyze_image(
         # json_object mode with the schema stated in the prompt.
         logger.warning("json_schema mode failed (%s); retrying with json_object", error)
 
+    # Compact separators shave a few hundred prompt tokens, which matters
+    # against Groq's free tier per-request token ceiling.
     messages[1]["content"][-1]["text"] += (
         "\nReturn ONLY a JSON object that validates against this JSON Schema "
-        "(no prose, no markdown):\n" + json.dumps(SCAN_SCHEMA)
+        "(no prose, no markdown):\n" + json.dumps(SCAN_SCHEMA, separators=(",", ":"))
     )
     response = client.chat.completions.create(
         model=model,
