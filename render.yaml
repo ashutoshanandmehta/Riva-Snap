@@ -10,6 +10,9 @@ services:
       - key: PYTHON_VERSION
         value: 3.12.6
       # Secrets: Render prompts for these when you deploy the blueprint.
+      # OpenAI takes precedence over Groq when both are set (see app/vision.py).
+      - key: OPENAI_API_KEY
+        sync: false
       - key: GROQ_API_KEY
         sync: false
       - key: FDC_API_KEY

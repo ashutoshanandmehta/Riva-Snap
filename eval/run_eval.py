@@ -11,6 +11,7 @@ Reads eval/golden.jsonl — one JSON object per line:
 Images live in eval/images/. Writes a markdown report to eval/reports/.
 """
 
+import argparse
 import difflib
 import json
 import statistics
@@ -45,13 +46,22 @@ def name_matches(expected: str, item_names: list[str]) -> bool:
 
 
 def main() -> None:
-    config = settings()
-    if not GOLDEN_FILE.exists():
-        sys.exit(f"No golden set at {GOLDEN_FILE} — see golden.example.jsonl.")
+    ap = argparse.ArgumentParser(description="Run the scan pipeline over a golden image set.")
+    ap.add_argument("--golden", type=Path, default=GOLDEN_FILE, help="path to golden jsonl")
+    ap.add_argument("--images", type=Path, default=IMAGES_DIR, help="directory of eval images")
+    ap.add_argument("--limit", type=int, default=None, help="cap the number of cases (cost control)")
+    args = ap.parse_args()
+    golden_file, images_dir = args.golden, args.images
 
-    golden = [json.loads(line) for line in GOLDEN_FILE.read_text().splitlines() if line.strip()]
+    config = settings()
+    if not golden_file.exists():
+        sys.exit(f"No golden set at {golden_file} — see golden.example.jsonl.")
+
+    golden = [json.loads(line) for line in golden_file.read_text().splitlines() if line.strip()]
     if not golden:
-        sys.exit("golden.jsonl is empty.")
+        sys.exit(f"{golden_file} is empty.")
+    if args.limit:
+        golden = golden[: args.limit]
 
     try:
         client, provider = vision.make_client(config)
@@ -63,7 +73,7 @@ def main() -> None:
     rows = []
     latencies: list[float] = []
     for case in golden:
-        image_path = IMAGES_DIR / case["file"]
+        image_path = images_dir / case["file"]
         if not image_path.exists():
             rows.append({**case, "error": "image missing"})
             continue
@@ -92,15 +102,39 @@ def main() -> None:
             if expected_kcal
             else None
         )
+
+        # Portion accuracy: total detected grams vs ground-truth mass. This is
+        # the metric Nutrition5k is uniquely good for and the one the harness
+        # previously ignored.
+        detected_grams = sum(item.portion_grams for item in result.items)
+        expected_grams = case.get("grams")
+        gram_err = (
+            abs(detected_grams - expected_grams) / expected_grams
+            if expected_grams
+            else None
+        )
+
+        # Ingredient recall: fraction of the ground-truth ingredient list the
+        # model surfaced (as a detected item name or alternative).
+        expected_ingrs = case.get("ingredients") or []
+        ingr_recall = (
+            sum(name_matches(ingr, detected_names) for ingr in expected_ingrs) / len(expected_ingrs)
+            if expected_ingrs
+            else None
+        )
+
         rows.append(
             {
                 **case,
                 "detected": [item.name for item in result.items],
                 "detected_kcal": result.totals.calories,
+                "detected_grams": round(detected_grams),
                 "name_ok": name_matches(case["dish"], detected_names) if case.get("dish") else None,
                 "type_ok": result.scan_type == case.get("scan_type", "food"),
                 "fdc_matched": any(item.matched for item in result.items),
                 "kcal_err": kcal_err,
+                "gram_err": gram_err,
+                "ingr_recall": ingr_recall,
                 "latency_ms": round(elapsed_ms),
             }
         )
@@ -108,6 +142,8 @@ def main() -> None:
     scored = [r for r in rows if "error" not in r]
     name_rows = [r for r in scored if r["name_ok"] is not None]
     kcal_rows = [r for r in scored if r["kcal_err"] is not None]
+    gram_rows = [r for r in scored if r.get("gram_err") is not None]
+    ingr_rows = [r for r in scored if r.get("ingr_recall") is not None]
     food_rows = [r for r in scored if r.get("scan_type", "food") == "food"]
 
     def pct(part: int, whole: int) -> str:
@@ -130,6 +166,12 @@ def main() -> None:
         f"| Calorie MAPE | "
         + (f"{100 * statistics.mean(r['kcal_err'] for r in kcal_rows):.0f}%" if kcal_rows else "n/a")
         + " |",
+        f"| Portion (gram) MAPE | "
+        + (f"{100 * statistics.mean(r['gram_err'] for r in gram_rows):.0f}%" if gram_rows else "n/a")
+        + " |",
+        f"| Ingredient recall | "
+        + (f"{100 * statistics.mean(r['ingr_recall'] for r in ingr_rows):.0f}%" if ingr_rows else "n/a")
+        + " |",
         f"| scan_type accuracy | {pct(sum(r['type_ok'] for r in scored), len(scored))} |",
         f"| FDC match rate (food) | {pct(sum(r['fdc_matched'] for r in food_rows), len(food_rows))} |",
         f"| Latency p50 / p95 | "
@@ -143,16 +185,17 @@ def main() -> None:
         "",
         "## Cases",
         "",
-        "| file | expected | detected | kcal (exp/got) | name | type | FDC | ms |",
-        "|---|---|---|---|---|---|---|---|",
+        "| file | expected | detected | kcal (exp/got) | grams (exp/got) | name | type | FDC | ms |",
+        "|---|---|---|---|---|---|---|---|---|",
     ]
     for r in rows:
         if "error" in r:
-            lines.append(f"| {r['file']} | {r.get('dish', '')} | ERROR: {r['error']} | | | | | |")
+            lines.append(f"| {r['file']} | {r.get('dish', '')} | ERROR: {r['error']} | | | | | | |")
             continue
         lines.append(
             f"| {r['file']} | {r.get('dish', '')} | {', '.join(r['detected'])} "
             f"| {r.get('kcal', '—')}/{r['detected_kcal']} "
+            f"| {r.get('grams', '—')}/{r['detected_grams']} "
             f"| {'✅' if r['name_ok'] else '❌' if r['name_ok'] is not None else '—'} "
             f"| {'✅' if r['type_ok'] else '❌'} "
             f"| {'✅' if r['fdc_matched'] else '—'} "

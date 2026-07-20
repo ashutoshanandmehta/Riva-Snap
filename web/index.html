@@ -55,10 +55,6 @@
   #hint, .field { width: 100%; margin-top: 10px; padding: 12px; font-size: 14px;
     border: 1px solid var(--brand-soft); border-radius: 12px;
     background: var(--bg); color: var(--text); }
-  #loginCard .btn { width: 100%; margin-top: 10px; }
-  #authBar { text-align: right; margin: -6px 2px 10px; }
-  #authBar a { color: var(--brand); text-decoration: none; }
-
   #previewWrap { display: none; position: relative; }
   #preview { width: 100%; border-radius: 14px; display: block; max-height: 340px; object-fit: cover; }
   #previewWrap.scanning::after { content: ""; position: absolute; inset: 0;
@@ -130,21 +126,7 @@
   <h1>Riva Snap</h1>
 </header>
 
-<p class="meta" id="authBar" style="display:none"></p>
-
-<div class="card" id="loginCard" style="display:none">
-  <div class="overline">Sign in to scan and log</div>
-  <div id="emailStep">
-    <input type="email" class="field" id="emailInput" placeholder="you@example.com" autocomplete="email">
-    <button class="btn btn-primary" id="sendCodeBtn">Send code</button>
-  </div>
-  <div id="codeStep" style="display:none">
-    <input type="text" class="field" id="codeInput" inputmode="numeric" autocomplete="one-time-code" placeholder="6-digit code from your email">
-    <button class="btn btn-primary" id="verifyBtn">Verify</button>
-    <button class="btn btn-soft" id="backToEmailBtn">Use a different email</button>
-  </div>
-  <p class="item-sub" id="authMessage" style="margin-top:10px"></p>
-</div>
+<p class="meta">Public test scanner. No sign-in, nothing is saved.</p>
 
 <div class="card" id="scanCard">
   <div class="modes" id="modes">
@@ -191,80 +173,12 @@ let selectedFile = null;
 let lastResponse = null;
 let scanMode = "auto";
 
-// --- auth (Supabase email code login) ------------------------------------------
-let sb = null;
-let session = null;
-let backendEnabled = false;
-let pendingEmail = "";
-
-async function initAuth() {
-  let config = null;
-  try { config = await fetch("/v1/config").then(r => r.json()); } catch (e) { /* open mode */ }
-  if (!config || !config.backend_enabled) { renderAuth(); return; }
-  backendEnabled = true;
-  const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-  sb = createClient(config.supabase_url, config.supabase_anon_key);
-  const { data } = await sb.auth.getSession();
-  session = data.session;
-  sb.auth.onAuthStateChange((_event, newSession) => { session = newSession; renderAuth(); });
-  renderAuth();
-}
-
-function renderAuth() {
-  const signedOut = backendEnabled && !session;
-  $("loginCard").style.display = signedOut ? "block" : "none";
-  $("scanCard").style.display = signedOut ? "none" : "block";
-  if (signedOut) {
-    $("previewCard").style.display = "none";
-    $("results").style.display = "none";
-    $("authBar").style.display = "none";
-    return;
-  }
-  if (backendEnabled && session) {
-    $("authBar").style.display = "block";
-    $("authBar").innerHTML =
-      `${escapeHtml(session.user.email)} · <a href="#" id="signOutLink">Sign out</a>`;
-    $("signOutLink").onclick = (e) => { e.preventDefault(); sb.auth.signOut(); };
-  }
-}
-
+// --- public test scanner: no sign-in, no logging, nothing saved to the DB ------
+// The website only scans. It never authenticates and never calls /v1/log, so no
+// data reaches the database. The iOS app is a separate client, unaffected.
 function authHeaders() {
-  return session ? { "Authorization": "Bearer " + session.access_token } : {};
+  return {};
 }
-
-$("sendCodeBtn").onclick = async () => {
-  const email = $("emailInput").value.trim();
-  if (!email) return;
-  $("sendCodeBtn").disabled = true;
-  $("authMessage").textContent = "Sending the code…";
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
-  $("sendCodeBtn").disabled = false;
-  if (error) { $("authMessage").textContent = error.message; return; }
-  pendingEmail = email;
-  $("emailStep").style.display = "none";
-  $("codeStep").style.display = "block";
-  $("authMessage").textContent = "Check your email for a 6-digit code.";
-};
-
-$("verifyBtn").onclick = async () => {
-  const code = $("codeInput").value.trim();
-  if (!code) return;
-  $("verifyBtn").disabled = true;
-  const { error } = await sb.auth.verifyOtp({ email: pendingEmail, token: code, type: "email" });
-  $("verifyBtn").disabled = false;
-  if (error) { $("authMessage").textContent = error.message; return; }
-  $("codeStep").style.display = "none";
-  $("emailStep").style.display = "block";
-  $("authMessage").textContent = "";
-};
-
-$("backToEmailBtn").onclick = () => {
-  $("codeStep").style.display = "none";
-  $("emailStep").style.display = "block";
-  $("authMessage").textContent = "";
-};
-
-initAuth();
 
 // --- log-mode selector ---------------------------------------------------------
 for (const button of document.querySelectorAll(".mode")) {
@@ -365,7 +279,6 @@ $("scanBtn").onclick = async () => {
 
   try {
     const response = await fetch("/v1/scan", { method: "POST", body: form, headers: authHeaders() });
-    if (response.status === 401) { renderAuth(); throw new Error("Please sign in first."); }
     const payload = await response.json();
     if (!response.ok) throw new Error(payload.detail || response.statusText);
     lastResponse = payload;
@@ -483,41 +396,11 @@ function render(data, clientMs) {
 async function accept() {
   if (!lastResponse) return;
   const delta = lastResponse.nutrition_day_delta;
-
-  if (!backendEnabled) {
-    const message = delta.water_ounces > 0
-      ? `Logged ${delta.water_ounces} oz of water (test mode, nothing is saved yet)`
-      : `Logged ${delta.calories} kcal and ${delta.protein_grams}g protein (test mode, nothing is saved yet)`;
-    toast(message);
-    return;
-  }
-
-  try {
-    const response = await fetch("/v1/log", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", ...authHeaders() },
-      body: JSON.stringify({
-        scan_type: lastResponse.scan_type,
-        items: lastResponse.items,
-        calories: delta.calories,
-        protein_grams: delta.protein_grams,
-        carb_grams: delta.carb_grams,
-        fiber_grams: delta.fiber_grams,
-        water_ounces: delta.water_ounces,
-        model: lastResponse.model,
-        prompt_version: lastResponse.prompt_version,
-      }),
-    });
-    if (response.status === 401) { renderAuth(); toast("Please sign in first."); return; }
-    const totals = await response.json();
-    if (!response.ok) throw new Error(totals.detail || response.statusText);
-    const message = lastResponse.scan_type === "water"
-      ? `Logged. Today so far: ${totals.water_ounces} oz of water`
-      : `Logged. Today so far: ${totals.calories} kcal and ${totals.protein_grams}g protein`;
-    toast(message);
-  } catch (error) {
-    toast("Could not save: " + (error.message || error));
-  }
+  // Public test scanner: results are shown but never saved anywhere.
+  const message = delta.water_ounces > 0
+    ? `${delta.water_ounces} oz of water. Test scan, nothing is saved.`
+    : `${delta.calories} kcal, ${delta.protein_grams}g protein. Test scan, nothing is saved.`;
+  toast(message);
 }
 
 // --- helpers -----------------------------------------------------------------

@@ -391,9 +391,9 @@ def scan(
 ) -> ScanResponse:
     if mode not in ("auto", "food", "water"):
         raise HTTPException(status_code=400, detail="mode must be auto, food, or water")
-    # When the backend is configured, scanning requires sign-in. This also
-    # keeps the public Render URL from burning the shared LLM quota.
-    _authenticate(authorization)
+    # Public scanner: scanning is anonymous and stateless (no DB writes here).
+    # Persisting to the database happens only via the authenticated /v1/log
+    # route, which the iOS app uses and the website never calls.
     config = settings()
     include_debug = config.riva_scan_debug if debug is None else debug
     started = time.monotonic()
