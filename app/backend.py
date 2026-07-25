@@ -240,14 +240,65 @@ def wellness_summary(config: Settings, user_id: str) -> dict | None:
 
 
 # ---------------------------------------------------------------------------
+# To-dos: full CRUD, all through owned SECURITY DEFINER functions
+# ---------------------------------------------------------------------------
+
+_TODO_GONE = "That to-do no longer exists."
+
+
+def list_todos(config: Settings, user_id: str) -> list[dict]:
+    """Open to-dos with `is_done` already resolved for the profile day."""
+    return _rpc(config, "list_todos", {"p_user_id": user_id})
+
+
+def upsert_todo(config: Settings, user_id: str, entry: dict) -> dict:
+    """Creates when `entry["id"]` is None, else edits that owned to-do."""
+    rows = _rpc(
+        config,
+        "upsert_todo",
+        {
+            "p_user_id": user_id,
+            "p_todo_id": entry.get("id"),
+            "p_title": entry["title"],
+            "p_category": entry["category"],
+            "p_repeat_rule": entry["repeat_rule"],
+            "p_remind_hour": entry["remind_hour"],
+            "p_remind_minute": entry["remind_minute"],
+            "p_due_date": entry.get("due_date"),
+        },
+    )
+    if not rows:
+        # An edit that matched nothing: the id is unknown or not this user's.
+        raise HTTPException(status_code=404, detail=_TODO_GONE)
+    return rows[0]
+
+
+def set_todo_done(config: Settings, user_id: str, todo_id: str, done: bool) -> dict:
+    rows = _rpc(
+        config,
+        "set_todo_done",
+        {"p_user_id": user_id, "p_todo_id": todo_id, "p_done": done},
+    )
+    if not rows:
+        raise HTTPException(status_code=404, detail=_TODO_GONE)
+    return rows[0]
+
+
+def delete_todo(config: Settings, user_id: str, todo_id: str) -> None:
+    rows = _rpc(config, "delete_todo", {"p_user_id": user_id, "p_todo_id": todo_id})
+    if not rows:
+        raise HTTPException(status_code=404, detail=_TODO_GONE)
+
+
+# ---------------------------------------------------------------------------
 # Reads and updates: profile, goals, plan, histories, export, account
 # ---------------------------------------------------------------------------
 
 _LOAD_DETAIL = "Could not load your data. Try again."
 _SAVE_DETAIL = "Could not save your changes. Try again."
 _MIGRATION_DETAIL = (
-    "The database is missing tables from migration 0002. Run "
-    "backend/supabase/migrations/0002_logging.sql in the Supabase SQL Editor."
+    "The database is missing tables from a migration. Run the unapplied files in "
+    "backend/supabase/migrations/ in the Supabase SQL Editor."
 )
 
 _PROFILE_COLUMNS = (
@@ -678,6 +729,9 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
     except HTTPException:
         logger.warning("wellness summary unavailable; dashboard degrades without it")
 
+    # To-dos are deliberately NOT here: they are read and written through
+    # /v1/todos, so carrying them would cost an extra RPC per dashboard call
+    # for a payload no client decodes.
     return {
         "profile": me["profile"],
         "nutrition_goals": me["nutrition_goals"],
@@ -720,6 +774,12 @@ def export_user(config: Settings, user_id: str) -> dict:
         # rather than failing the whole privacy export.
         wellness_sessions = []
 
+    try:
+        todos = _select(config, "todos", {**owned, "order": "created_at.desc"})
+    except HTTPException:
+        # Pre-0004 DBs lack the todos table; same single-section degrade.
+        todos = []
+
     return {
         "profile": profiles[0] if profiles else None,
         "nutrition_goals": goals[0] if goals else None,
@@ -732,6 +792,7 @@ def export_user(config: Settings, user_id: str) -> dict:
         "side_effect_logs": logs,
         "checkins": checkins,
         "wellness_sessions": wellness_sessions,
+        "todos": todos,
     }
 
 

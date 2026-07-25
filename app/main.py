@@ -7,12 +7,13 @@ mirrors the Riva database schema (see FOOD_SCAN_MODEL_PLAN.md).
 import io
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
 import httpx
-from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -33,6 +34,8 @@ from .schemas import (
     GENDERS,
     INJECTION_SITES,
     SIDE_EFFECTS,
+    TODO_CATEGORIES,
+    TODO_REPEATS,
     AccountDeleteResult,
     BackendConfig,
     CheckinLogRequest,
@@ -64,6 +67,10 @@ from .schemas import (
     SideEffectListResult,
     SideEffectsLogRequest,
     SideEffectsLogResult,
+    Todo,
+    TodoDoneRequest,
+    TodoListResult,
+    TodoUpsertRequest,
     Totals,
     WaterResult,
     WeightListResult,
@@ -280,6 +287,89 @@ def wellness_suggestions(
         logger.exception("wellness suggestions failed; serving the fallback")
         fallback = suggestions.fallback(context)
         return WellnessSuggestionsResult(suggestions=fallback["suggestions"], source="fallback")
+
+
+def _validated_todo(request: TodoUpsertRequest) -> dict:
+    """Shared validation for create and edit. Mirrors the CHECK constraints in
+    0004_todos.sql so a bad payload is a 400, never a database error."""
+    title = request.title.strip()
+    if not (1 <= len(title) <= 80):
+        raise HTTPException(
+            status_code=400, detail="Give the to-do a title of up to 80 characters."
+        )
+    if request.category not in TODO_CATEGORIES:
+        raise HTTPException(status_code=400, detail="Unknown to-do category.")
+    if request.repeat_rule not in TODO_REPEATS:
+        raise HTTPException(status_code=400, detail="A to-do repeats daily or happens once.")
+    if not (0 <= request.remind_hour <= 23) or not (0 <= request.remind_minute <= 59):
+        raise HTTPException(status_code=400, detail="Pick a valid reminder time.")
+    once = request.repeat_rule == "once"
+    if once and not request.due_date:
+        raise HTTPException(status_code=400, detail="Pick the day this to-do happens.")
+    # Parse the free-form strings here; unparseable ones would otherwise reach
+    # Postgres and come back as a 502 that reads like a backend outage.
+    if once:
+        try:
+            date.fromisoformat(request.due_date or "")
+        except ValueError:
+            raise HTTPException(
+                status_code=400, detail="Pick the day this to-do happens."
+            ) from None
+    if request.id is not None:
+        try:
+            uuid.UUID(request.id)
+        except ValueError:
+            raise HTTPException(status_code=404, detail="That to-do no longer exists.") from None
+    entry = request.model_dump()
+    entry["title"] = title
+    # A daily to-do has no date; drop anything the client sent so the
+    # todos_due_date_matches_repeat constraint holds.
+    entry["due_date"] = request.due_date if once else None
+    return entry
+
+
+def _validated_todo_id(todo_id: str) -> str:
+    """A non-uuid path segment is an unknown to-do, not a server error."""
+    try:
+        uuid.UUID(todo_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="That to-do no longer exists.") from None
+    return todo_id
+
+
+@app.get("/v1/todos", response_model=TodoListResult)
+def list_todos(authorization: str | None = Header(default=None)) -> TodoListResult:
+    """Open to-dos, done state already resolved for the profile-timezone day."""
+    user_id = _require_user(authorization)
+    return TodoListResult(todos=backend.list_todos(settings(), user_id))
+
+
+@app.post("/v1/todos", response_model=Todo)
+def upsert_todo(
+    request: TodoUpsertRequest, authorization: str | None = Header(default=None)
+) -> Todo:
+    """Creates the to-do, or edits it when the body carries an id."""
+    user_id = _require_user(authorization)
+    row = backend.upsert_todo(settings(), user_id, _validated_todo(request))
+    return Todo(**row)
+
+
+@app.post("/v1/todos/{todo_id}/done", response_model=Todo)
+def set_todo_done(
+    todo_id: str,
+    request: TodoDoneRequest,
+    authorization: str | None = Header(default=None),
+) -> Todo:
+    user_id = _require_user(authorization)
+    row = backend.set_todo_done(settings(), user_id, _validated_todo_id(todo_id), request.done)
+    return Todo(**row)
+
+
+@app.delete("/v1/todos/{todo_id}", status_code=204)
+def delete_todo(todo_id: str, authorization: str | None = Header(default=None)) -> Response:
+    user_id = _require_user(authorization)
+    backend.delete_todo(settings(), user_id, _validated_todo_id(todo_id))
+    return Response(status_code=204)
 
 
 @app.get("/v1/me", response_model=MeResponse)

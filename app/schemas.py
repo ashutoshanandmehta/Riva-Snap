@@ -260,6 +260,45 @@ class WellnessSuggestionsResult(BaseModel):
     source: str  # "llm" | "cache" | "fallback"
 
 
+TODO_CATEGORIES = ("food", "water", "weight", "custom")
+
+TODO_REPEATS = ("daily", "once")
+
+
+class Todo(BaseModel):
+    """One to-do as `list_todos` returns it. `is_done` is resolved server-side
+    against the profile-timezone day, so daily to-dos reset on their own."""
+
+    id: str
+    title: str
+    category: str
+    repeat_rule: str
+    remind_hour: int
+    remind_minute: int
+    due_date: str | None
+    is_done: bool
+
+
+class TodoUpsertRequest(BaseModel):
+    """Create when `id` is absent, edit the owned to-do when it is present."""
+
+    id: str | None = None
+    title: str
+    category: str
+    repeat_rule: str
+    remind_hour: int
+    remind_minute: int
+    due_date: str | None = None
+
+
+class TodoDoneRequest(BaseModel):
+    done: bool
+
+
+class TodoListResult(BaseModel):
+    todos: list[Todo]
+
+
 class DayTotals(BaseModel):
     """The user's nutrition_days row after the log was applied."""
 
