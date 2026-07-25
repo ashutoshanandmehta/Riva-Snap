@@ -32,6 +32,10 @@ class ScanItem(BaseModel):
     fdc_description: str | None
     source: str  # "usda" | "model"
     alternatives: list[str]
+    # Plausibility gate verdict: "ok" | "clamped" (grams clamped to a per-class
+    # bound, macros scaled, confidence lowered) | "implausible" (grossly out of
+    # range — clamped but flag for the user to correct/retake). Never raw-out-of-range.
+    plausibility: str = "ok"
 
 
 class WaterResult(BaseModel):
@@ -71,6 +75,30 @@ class ScanDebug(BaseModel):
     fdc_queries: list[dict]
 
 
+class VolumetricDebug(BaseModel):
+    """Verdict/diagnostic block for the multi-frame volumetric pipeline
+    (`POST /v1/scan/volumetric`), behind the iOS "3D scan (beta)" flow.
+    Absent (None) on the plain `/v1/scan` route.
+
+    These fields are for eval/diagnostics, not end-user display — the iOS
+    client does not decode this block for the shipping UI and must never
+    render any of it as raw text; it shows only a simple, static
+    "experimental measurement" notice instead."""
+
+    tier: str  # "A" | "B" | "C"
+    n_views: int
+    segmenter: str
+    parametric_fallback: bool  # True for B1 (poses not yet used)
+    poses_present: bool
+    food_class: str | None = None
+    volume_ml: float | None = None  # gated volume
+    raw_volume_ml: float | None = None
+    mass_g: float | None = None
+    gate_action: str | None = None  # "log" | "clamp" | "retake"
+    mass_source: str | None = None  # "carve" | "llm" — which mass estimate was logged
+    reason: str | None = None
+
+
 class ScanResponse(BaseModel):
     scan_type: str  # food | water | beverage | not_food
     # What the client asked to log (auto | food | water) and whether the
@@ -88,6 +116,7 @@ class ScanResponse(BaseModel):
     model: str
     latency: LatencyBreakdown
     debug: ScanDebug | None = None
+    volumetric: VolumetricDebug | None = None
 
 
 class BackendConfig(BaseModel):
@@ -129,13 +158,24 @@ class DeviceSession(BaseModel):
 
 
 INJECTION_SITES = (
-    "right_arm", "left_arm", "lower_left_abs",
-    "lower_right_abs", "right_thigh", "left_thigh",
+    "right_arm",
+    "left_arm",
+    "lower_left_abs",
+    "lower_right_abs",
+    "right_thigh",
+    "left_thigh",
 )
 
 SIDE_EFFECTS = (
-    "nausea", "headache", "fatigue", "constipation", "diarrhea",
-    "dizziness", "bloating", "heartburn", "food_noise",
+    "nausea",
+    "headache",
+    "fatigue",
+    "constipation",
+    "diarrhea",
+    "dizziness",
+    "bloating",
+    "heartburn",
+    "food_noise",
 )
 
 
@@ -195,6 +235,31 @@ class CheckinLogResult(BaseModel):
     value: int
 
 
+WELLNESS_KINDS = ("yoga", "meditation", "exercise", "mind", "sleep")
+
+
+class WellnessLogRequest(BaseModel):
+    practice_id: str
+    kind: str
+    minutes: int
+
+
+class WellnessLogResult(BaseModel):
+    day: str
+    minutes_today: int
+    streak_days: int
+
+
+class WellnessSuggestion(BaseModel):
+    practice_id: str
+    reason: str
+
+
+class WellnessSuggestionsResult(BaseModel):
+    suggestions: list[WellnessSuggestion]
+    source: str  # "llm" | "cache" | "fallback"
+
+
 class DayTotals(BaseModel):
     """The user's nutrition_days row after the log was applied."""
 
@@ -208,7 +273,7 @@ class DayTotals(BaseModel):
 
 class HealthResponse(BaseModel):
     status: str
-    provider: str | None  # "openai" | "groq"
+    provider: str | None  # "anthropic"
     model: str | None
     prompt_version: str
     llm_key_present: bool
@@ -234,6 +299,8 @@ class NutritionGoals(BaseModel):
     carb_goal: int
     fiber_goal: int
     water_goal: int
+    # Optional so rows from a pre-0003 database still validate.
+    wellness_minutes_goal: int | None = None
 
 
 class HealthGoals(BaseModel):
@@ -285,6 +352,7 @@ class GoalsUpdateRequest(BaseModel):
     carb_goal: int | None = None
     fiber_goal: int | None = None
     water_goal: int | None = None
+    wellness_minutes_goal: int | None = None
 
 
 class GoalsUpdateResult(BaseModel):

@@ -9,7 +9,10 @@ Rules:
    `not_food` (nothing edible in frame — set `reason`, leave items empty).
 2. Identify EVERY distinct food item visible (a plate of chicken, rice, and
    broccoli is three items). Name items the way a US nutrition database would
-   ("Grilled chicken breast", not "yummy chicken").
+   ("Grilled chicken breast", not "yummy chicken"). Also assign each item a
+   `food_class` — the closest match (e.g. a samosa or pakora is
+   `fried_snack`, a roti or naan is `flatbread`, a curry/masala/gravy dish is
+   `curry_gravy`); use `other` only when nothing fits.
 3. Describe the plate/bowl/container and its approximate size — use it to
    calibrate portions. A standard US dinner plate is 10-11 in; a bowl holds
    1.5-2 cups.

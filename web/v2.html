@@ -1,0 +1,302 @@
+<!-- Riva Snap v2 — CalorieMama-backed food read. Served by the API; posts to /v2/scan (proxy). -->
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Riva Snap v2</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Inter:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
+<style>
+  :root{
+    --bg:#EDF1EA; --card:#FBFCFA; --ink:#25322A; --muted:#5E6E63;
+    --accent:#E27544; --accent-ink:#C0592F; --fresh:#3F8F63; --fresh-wash:#E1EDE3;
+    --line:#D6DFD1; --shadow:0 1px 2px rgba(37,50,42,.05),0 14px 40px -20px rgba(37,50,42,.28);
+    --display:"Bricolage Grotesque",system-ui,sans-serif;
+    --body:"Inter",system-ui,sans-serif;
+    --mono:"Space Mono","SFMono-Regular",ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink); font-family:var(--body);
+    font-size:16px; line-height:1.5; -webkit-font-smoothing:antialiased;
+    min-height:100dvh; padding:max(20px,env(safe-area-inset-top)) 20px 40px;
+  }
+  .wrap{max-width:520px; margin:0 auto}
+
+  /* header */
+  .top{display:flex; align-items:center; gap:10px; margin:6px 2px 26px}
+  .mark{width:34px;height:34px;border-radius:11px;background:var(--ink);color:#EDF1EA;
+    display:grid;place-items:center;font-size:19px}
+  .name{font-family:var(--display);font-weight:800;font-size:19px;letter-spacing:-.02em}
+  .ver{font-family:var(--mono);font-size:11px;color:var(--accent-ink);
+    border:1px solid var(--accent);border-radius:6px;padding:1px 6px;margin-left:2px}
+
+  h1{font-family:var(--display);font-weight:800;font-size:clamp(30px,7vw,40px);
+    line-height:1.04;letter-spacing:-.03em;margin:0 0 8px}
+  .lede{color:var(--muted);margin:0 0 22px;max-width:34ch}
+
+  /* dropzone / capture */
+  .stage{background:var(--card);border:1px solid var(--line);border-radius:20px;
+    box-shadow:var(--shadow);overflow:hidden}
+  .drop{border:2px dashed var(--line);border-radius:16px;margin:14px;
+    padding:30px 20px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s}
+  .drop:hover,.drop.over{border-color:var(--accent);background:#FDF6F2}
+  .drop .glyph{font-size:30px}
+  .drop .big{font-family:var(--display);font-weight:600;font-size:18px;margin-top:8px}
+  .drop .sub{color:var(--muted);font-size:13.5px;margin-top:4px}
+
+  /* preview with reticle */
+  .frame{position:relative;margin:14px;border-radius:14px;overflow:hidden;background:#0d130f;display:none}
+  .frame img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover}
+  .corner{position:absolute;width:22px;height:22px;border:2.5px solid var(--accent)}
+  .corner.tl{top:12px;left:12px;border-right:0;border-bottom:0;border-radius:6px 0 0 0}
+  .corner.tr{top:12px;right:12px;border-left:0;border-bottom:0;border-radius:0 6px 0 0}
+  .corner.bl{bottom:12px;left:12px;border-right:0;border-top:0;border-radius:0 0 0 6px}
+  .corner.br{bottom:12px;right:12px;border-left:0;border-top:0;border-radius:0 0 6px 0}
+  .scanline{position:absolute;inset:0;background:linear-gradient(transparent,rgba(226,117,68,.35),transparent);
+    transform:translateY(-100%);display:none}
+  .frame.busy .scanline{display:block;animation:sweep 1.25s ease-in-out infinite}
+  @keyframes sweep{0%{transform:translateY(-100%)}100%{transform:translateY(100%)}}
+
+  /* actions */
+  .row{display:flex;gap:10px;padding:0 14px 16px}
+  .btn{flex:1;border:0;border-radius:12px;padding:14px;font-family:var(--body);font-weight:600;
+    font-size:15px;cursor:pointer;transition:opacity .15s,transform .05s}
+  .btn:active{transform:translateY(1px)}
+  .btn[disabled]{opacity:.4;cursor:default}
+  .btn-primary{background:var(--accent);color:#fff}
+  .btn-primary:hover{background:var(--accent-ink)}
+  .btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--line);flex:0 0 auto;padding:14px 16px}
+  .btn-ghost:hover{border-color:var(--ink)}
+  .hint{padding:0 16px 16px}
+  .hint input{width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 14px;
+    font-family:var(--body);font-size:14px;background:var(--bg);color:var(--ink)}
+  .hint input::placeholder{color:#93A398}
+  :focus-visible{outline:2.5px solid var(--accent);outline-offset:2px}
+
+  /* result */
+  .result{margin-top:16px;opacity:0;transform:translateY(10px);transition:opacity .4s,transform .4s;display:none}
+  .result.show{opacity:1;transform:none}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:20px;box-shadow:var(--shadow);
+    padding:22px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+  .dish{font-family:var(--display);font-weight:800;font-size:clamp(24px,6vw,30px);
+    line-height:1.1;letter-spacing:-.02em;margin:6px 0 10px;text-transform:capitalize}
+  .chip{display:inline-flex;align-items:center;gap:6px;font-family:var(--mono);font-size:12.5px;
+    background:var(--fresh-wash);color:#2b6a45;border-radius:999px;padding:5px 11px}
+  .chip .dot{width:7px;height:7px;border-radius:50%;background:var(--fresh)}
+
+  .macros{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:18px}
+  .macro{background:var(--bg);border:1px solid var(--line);border-radius:13px;padding:12px 8px;text-align:center}
+  .macro .n{font-family:var(--mono);font-weight:700;font-size:19px}
+  .macro .u{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-top:2px}
+
+  .alts{margin-top:18px}
+  .alts .q{font-size:14px;color:var(--muted);margin-bottom:8px}
+  .alt{display:inline-block;font-size:13.5px;background:var(--bg);border:1px solid var(--line);
+    border-radius:999px;padding:6px 12px;margin:0 6px 6px 0;text-transform:capitalize}
+
+  .note{color:var(--muted);font-size:13px;text-align:center;margin:14px 4px 0}
+  .empty{padding:22px;text-align:center}
+  .empty .big{font-family:var(--display);font-weight:600;font-size:17px}
+  .empty .sub{color:var(--muted);font-size:14px;margin-top:6px}
+  .empty.err .big{color:var(--accent-ink)}
+
+  details{margin-top:12px}
+  summary{font-family:var(--mono);font-size:11.5px;color:var(--muted);cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  pre{background:#141b16;color:#c9d6cd;font-family:var(--mono);font-size:11.5px;line-height:1.5;
+    padding:14px;border-radius:12px;overflow:auto;margin-top:8px;max-height:280px}
+
+  footer{color:var(--muted);font-size:12px;text-align:center;margin-top:30px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+  <div class="top">
+    <div class="mark">≋</div>
+    <span class="name">Riva Snap</span><span class="ver">v2</span>
+  </div>
+
+  <h1>Read your plate<br>in a tap.</h1>
+  <p class="lede">Snap a meal and see what's in it. Estimates to guide you, not judge you.</p>
+
+  <div class="stage">
+    <div class="drop" id="drop" role="button" tabindex="0" aria-label="Choose or drop a food photo">
+      <div class="glyph">🍽️</div>
+      <div class="big">Drop a photo, or snap your plate</div>
+      <div class="sub">One meal per photo works best</div>
+    </div>
+
+    <div class="frame" id="frame">
+      <img id="preview" alt="Your meal">
+      <span class="corner tl"></span><span class="corner tr"></span>
+      <span class="corner bl"></span><span class="corner br"></span>
+      <div class="scanline"></div>
+    </div>
+
+    <div class="hint">
+      <input id="hint" type="text" placeholder="Add a hint if you like, e.g. “Chipotle chicken bowl”">
+    </div>
+
+    <div class="row">
+      <button class="btn btn-ghost" id="pickBtn" title="Choose a photo">Choose</button>
+      <button class="btn btn-ghost" id="camBtn" title="Use camera">Camera</button>
+      <button class="btn btn-primary" id="readBtn" disabled>Read my plate</button>
+    </div>
+  </div>
+
+  <input type="file" id="fileInput" accept="image/*" hidden>
+  <input type="file" id="camInput" accept="image/*" capture="environment" hidden>
+
+  <div class="result" id="result"></div>
+
+  <footer>Estimates to guide you, not medical advice.</footer>
+</div>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const SCAN_ENDPOINT = "/v2/scan";  // your backend proxy to CalorieMama (holds the API key)
+let selectedFile = null;
+
+// ---- pick / drop / camera ----------------------------------------------------
+$("pickBtn").onclick = () => $("fileInput").click();
+$("drop").onclick = () => $("fileInput").click();
+$("drop").onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("fileInput").click(); } };
+$("camBtn").onclick = () => $("camInput").click();
+$("fileInput").onchange = e => e.target.files[0] && loadFile(e.target.files[0]);
+$("camInput").onchange = e => e.target.files[0] && loadFile(e.target.files[0]);
+
+const drop = $("drop");
+["dragover","dragenter"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => e.dataTransfer.files[0] && loadFile(e.dataTransfer.files[0]));
+
+function loadFile(file){
+  if (!file.type.startsWith("image/")) return;
+  selectedFile = file;
+  const url = URL.createObjectURL(file);
+  $("preview").src = url;
+  $("frame").style.display = "block";
+  $("drop").style.display = "none";
+  $("readBtn").disabled = false;
+  $("result").className = "result";
+}
+
+// resize to CalorieMama's 544x544, matching the reference pipeline
+function resize544(file){
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      const c = document.createElement("canvas");
+      c.width = c.height = 544;
+      c.getContext("2d").drawImage(img, 0, 0, 544, 544);
+      c.toBlob(b => resolve(b), "image/jpeg", 0.9);
+    };
+    img.src = URL.createObjectURL(file);
+  });
+}
+
+// ---- scan --------------------------------------------------------------------
+$("readBtn").onclick = async () => {
+  if (!selectedFile) return;
+  $("readBtn").disabled = true;
+  $("frame").classList.add("busy");
+  renderMessage("Reading your plate…", "");
+  try {
+    const blob = await resize544(selectedFile);
+    const form = new FormData();
+    form.append("image", blob, "image.jpeg");
+    const hint = $("hint").value.trim();
+    if (hint) form.append("hint", hint);
+
+    const res = await fetch(SCAN_ENDPOINT, { method: "POST", body: form });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data) throw new Error((data && (data.detail || data.error)) || ("HTTP " + res.status));
+    renderResult(data);
+  } catch (err) {
+    renderMessage("Couldn't read that one.", (err.message || "Check your connection and try again.") + " Try again.", true);
+  } finally {
+    $("frame").classList.remove("busy");
+    $("readBtn").disabled = false;
+  }
+};
+
+// ---- defensive parsing of the CalorieMama response ---------------------------
+function collectItems(data){
+  const out = [];
+  const push = it => {
+    const name = it.name || it.food_name || it.label || it.title;
+    if (!name) return;
+    out.push({ name, score: it.score ?? it.confidence ?? it.prob ?? null, raw: it });
+  };
+  const groups = data.results || data.recognition_results || data.foods || [];
+  if (Array.isArray(groups)) {
+    for (const g of groups) {
+      if (Array.isArray(g.items)) g.items.forEach(push);
+      else if (g && (g.name || g.food_name)) push(g);
+    }
+  }
+  if (!out.length && Array.isArray(data.items)) data.items.forEach(push);
+  return out;
+}
+
+function findMacros(item){
+  // walk a few common shapes for per-serving nutrition
+  const s = item.raw || {};
+  const n = s.nutrition || (s.servingSizes && s.servingSizes[0] && (s.servingSizes[0].nutrients || s.servingSizes[0])) || s.nutrients;
+  if (!n) return null;
+  const g = (...keys) => { for (const k of keys){ if (n[k] != null) return Math.round(Number(n[k])); } return null; };
+  const m = { kcal:g("calories","energy","kcal","cal"),
+              p:g("protein","protein_g","totalProtein"),
+              c:g("carbs","carbohydrate","carbohydrates","carbs_g","totalCarbs"),
+              f:g("fat","total_fat","fat_g","totalFat") };
+  return (m.kcal!=null||m.p!=null||m.c!=null||m.f!=null) ? m : null;
+}
+
+function renderResult(data){
+  if (data.is_food === false){
+    return renderMessage("That doesn't look like food.", "Try a photo of a meal or a drink.");
+  }
+  const items = collectItems(data);
+  if (!items.length){
+    return renderMessage("Nothing recognized.", "Try a clearer, closer photo of one dish.", false, data);
+  }
+  const top = items[0], alts = items.slice(1, 4);
+  const macros = findMacros(top);
+
+  let html = `<div class="card">
+    <div class="eyebrow">Looks like</div>
+    <div class="dish">${esc(top.name)}</div>
+    <span class="chip"><span class="dot"></span>Top match</span>`;
+
+  if (macros){
+    html += `<div class="macros">
+      ${macro(macros.kcal, "kcal")}${macro(macros.p, "protein g")}
+      ${macro(macros.c, "carbs g")}${macro(macros.f, "fat g")}
+    </div>`;
+  }
+  if (alts.length){
+    html += `<div class="alts"><div class="q">Not quite? It might be:</div>` +
+      alts.map(a => `<span class="alt">${esc(a.name)}</span>`).join("") + `</div>`;
+  }
+  html += rawBlock(data) + `</div>`;
+  show(html);
+}
+
+function macro(v, u){ return `<div class="macro"><div class="n">${v==null?"—":v}</div><div class="u">${u}</div></div>`; }
+function renderMessage(big, sub, isErr, data){
+  const cls = "empty" + (isErr ? " err" : "");
+  show(`<div class="card"><div class="${cls}"><div class="big">${esc(big)}</div>${sub?`<div class="sub">${esc(sub)}</div>`:""}</div>${data?rawBlock(data):""}</div>`);
+}
+function rawBlock(data){
+  return `<details><summary>Raw response</summary><pre>${esc(JSON.stringify(data,null,2))}</pre></details>`;
+}
+function show(html){
+  const r = $("result"); r.innerHTML = html; r.style.display = "block";
+  requestAnimationFrame(() => r.classList.add("show"));
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+</script>

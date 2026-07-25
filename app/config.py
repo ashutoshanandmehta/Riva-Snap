@@ -9,8 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
-    openai_api_key: str = ""
-    groq_api_key: str = ""
+    anthropic_api_key: str = ""
     fdc_api_key: str = "DEMO_KEY"
 
     # Supabase backend. When all three are set, scanning requires sign-in and
@@ -21,12 +20,39 @@ class Settings(BaseSettings):
     # Empty = auto-resolve the best vision model available on the account.
     riva_scan_model: str = ""
     riva_scan_debug: bool = True
+    # Wellness suggestions (app/suggestions.py). Empty = the Sonnet default.
+    riva_suggest_model: str = ""
 
     prompt_version: str = "v1"
 
+    # Volumetric segmentation (app/volumetric/segmenter.py). Empty token = the
+    # classical (GrabCut) segmenter runs offline with no dependency.
+    replicate_api_token: str = ""
+    riva_sam2_model: str = "meta/sam-2"
+
+    # Self-hosted SAM 2 (LitServe on a Lightning AI GPU Studio — see
+    # backend/serving/sam2/). Takes priority over replicate_api_token when
+    # both are set (no per-call billing, one round trip for the whole scan).
+    # Empty endpoint = this backend is off.
+    sam2_endpoint_url: str = ""
+    sam2_api_key: str = ""
+    sam2_timeout_s: float = 25.0
+
+    # Dev-only capture persistence (app/volumetric/capture_store.py). Empty =
+    # OFF (no writes); set to a dataset dir to bank every capture on disk for
+    # offline re-scoring once the calibrated carver exists.
+    volumetric_capture_dir: str = ""
+
     @field_validator(
-        "openai_api_key", "groq_api_key", "fdc_api_key",
-        "supabase_url", "supabase_anon_key", "supabase_service_role_key",
+        "anthropic_api_key",
+        "fdc_api_key",
+        "supabase_url",
+        "supabase_anon_key",
+        "supabase_service_role_key",
+        "replicate_api_token",
+        "sam2_endpoint_url",
+        "sam2_api_key",
+        "volumetric_capture_dir",
         mode="before",
     )
     @classmethod

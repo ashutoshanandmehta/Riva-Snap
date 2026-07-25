@@ -4,19 +4,30 @@ Stateless by design in this phase: no auth, no DB. The response contract
 mirrors the Riva database schema (see FOOD_SCAN_MODEL_PLAN.md).
 """
 
+import io
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 
+import httpx
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from openai import OpenAI
+from PIL import Image
 
-from . import backend, grounding, preprocess, vision
+# Volumetric scan (multi-frame ARKit capture) is optional: its pipeline needs the
+# CV deps (numpy/opencv) that ship in requirements-dev only. Guard the import so a
+# production image without them still starts and serves /v1/scan — the volumetric
+# route is simply not mounted there.
+try:
+    from app.volumetric.routes import router as volumetric_router
+except ImportError:  # numpy/opencv absent (lean prod image)
+    volumetric_router = None
+
+from . import backend, grounding, plausibility, preprocess, suggestions, vision
 from .config import settings
 from .schemas import (
     GENDERS,
@@ -58,6 +69,9 @@ from .schemas import (
     WeightListResult,
     WeightLogRequest,
     WeightLogResult,
+    WellnessLogRequest,
+    WellnessLogResult,
+    WellnessSuggestionsResult,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -73,23 +87,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-_client: OpenAI | None = None
-_provider: str | None = None
+_client: object | None = None
 _model: str | None = None
 
 
-def _llm() -> tuple[OpenAI, str]:
-    """Lazily builds the provider client and resolves the model once."""
-    global _client, _provider, _model
+def _llm() -> tuple[object, str]:
+    """Lazily builds the Claude client and resolves the model once."""
+    global _client, _model
     if _client is None:
         config = settings()
         try:
-            client, provider = vision.make_client(config)
-            model = vision.resolve_model(client, provider, config.riva_scan_model)
+            client = vision.make_client(config)
         except RuntimeError as error:
             raise HTTPException(status_code=503, detail=str(error)) from error
-        _client, _provider, _model = client, provider, model
-        logger.info("Vision provider: %s, model: %s", provider, model)
+        _client, _model = client, vision.resolve_model(config)
+        logger.info("Vision model: %s", _model)
     assert _model is not None
     return _client, _model
 
@@ -131,7 +143,9 @@ def device_session(request: DeviceSessionRequest) -> DeviceSession:
         )
     device_id = request.device_id.strip()
     if not (8 <= len(device_id) <= 64) or not all(c.isalnum() or c == "-" for c in device_id):
-        raise HTTPException(status_code=400, detail="device_id must be 8 to 64 letters, digits, or dashes.")
+        raise HTTPException(
+            status_code=400, detail="device_id must be 8 to 64 letters, digits, or dashes."
+        )
     return DeviceSession(**backend.device_session(config, device_id))
 
 
@@ -203,7 +217,8 @@ def log_side_effects(
         if not (1 <= item.severity <= 5):
             raise HTTPException(status_code=400, detail="Severity is 1 to 5.")
     rows = backend.log_side_effects(
-        settings(), user_id,
+        settings(),
+        user_id,
         [item.model_dump() for item in request.effects],
         request.note,
     )
@@ -222,6 +237,49 @@ def log_checkin(
         settings(), user_id, request.question_id.strip(), request.option_code.strip()
     )
     return CheckinLogResult(**row)
+
+
+@app.post("/v1/log/wellness", response_model=WellnessLogResult)
+def log_wellness(
+    request: WellnessLogRequest, authorization: str | None = Header(default=None)
+) -> WellnessLogResult:
+    user_id = _require_user(authorization)
+    practice_id = request.practice_id.strip()
+    entry = suggestions.CATALOG.get(practice_id)
+    if entry is None:
+        raise HTTPException(status_code=400, detail="Unknown practice.")
+    # Kind is canonical per the catalog; ignore any client-sent kind.
+    kind = entry[0]
+    if not (0 < request.minutes <= 300):
+        raise HTTPException(status_code=400, detail="Minutes must be between 1 and 300.")
+    row = backend.log_wellness_session(settings(), user_id, practice_id, kind, request.minutes)
+    return WellnessLogResult(**row)
+
+
+@app.get("/v1/wellness/suggestions", response_model=WellnessSuggestionsResult)
+def wellness_suggestions(
+    authorization: str | None = Header(default=None),
+) -> WellnessSuggestionsResult:
+    """Today's 1-3 suggested practices: day cache -> LLM -> store. Any
+    failure degrades to the deterministic fallback (never cached)."""
+    user_id = _require_user(authorization)
+    config = settings()
+    context: dict | None = None
+    try:
+        context = suggestions.build_context(config, user_id)
+        cached = backend.get_cached_suggestions(config, user_id, context["day"])
+        if cached:
+            return WellnessSuggestionsResult(suggestions=cached["suggestions"], source="cache")
+        result = suggestions.suggest(config, context)
+        try:
+            backend.cache_suggestions(config, user_id, context["day"], result)
+        except HTTPException:
+            logger.warning("suggestion cache write failed; serving the result uncached")
+        return WellnessSuggestionsResult(suggestions=result["suggestions"], source="llm")
+    except Exception:
+        logger.exception("wellness suggestions failed; serving the fallback")
+        fallback = suggestions.fallback(context)
+        return WellnessSuggestionsResult(suggestions=fallback["suggestions"], source="fallback")
 
 
 @app.get("/v1/me", response_model=MeResponse)
@@ -257,9 +315,7 @@ def update_profile(
     for key, label in (("start_weight", "start weight"), ("goal_weight", "goal weight")):
         value = fields.get(key)
         if value is not None and not (20 <= value <= 1500):
-            raise HTTPException(
-                status_code=400, detail=f"Enter a {label} between 20 and 1500 lbs."
-            )
+            raise HTTPException(status_code=400, detail=f"Enter a {label} between 20 and 1500 lbs.")
     height = fields.get("height_inches")
     if height is not None and not (20 <= height <= 120):
         raise HTTPException(status_code=400, detail="Enter a height between 20 and 120 inches.")
@@ -331,9 +387,7 @@ def list_weights(
 
 
 @app.get("/v1/shots", response_model=ShotListResult)
-def list_shots(
-    limit: int = 60, authorization: str | None = Header(default=None)
-) -> ShotListResult:
+def list_shots(limit: int = 60, authorization: str | None = Header(default=None)) -> ShotListResult:
     user_id = _require_user(authorization)
     rows = backend.list_shots(settings(), user_id, max(1, min(limit, 200)))
     return ShotListResult(entries=rows)
@@ -365,18 +419,19 @@ def delete_account(authorization: str | None = Header(default=None)) -> AccountD
 @app.get("/healthz", response_model=HealthResponse)
 def healthz() -> HealthResponse:
     config = settings()
+    llm_key_present = bool(config.anthropic_api_key)
     model: str | None = None
-    if config.openai_api_key or config.groq_api_key:
+    if llm_key_present:
         try:
             model = _llm()[1]
         except HTTPException:
             model = None
     return HealthResponse(
         status="ok",
-        provider=_provider,
+        provider="anthropic" if llm_key_present else None,
         model=model,
         prompt_version=config.prompt_version,
-        llm_key_present=bool(config.openai_api_key or config.groq_api_key),
+        llm_key_present=llm_key_present,
         fdc_key_present=bool(config.fdc_api_key),
     )
 
@@ -414,8 +469,12 @@ def scan(
     prompt_text = vision.load_prompt(config.prompt_version)
     try:
         analysis = vision.analyze_image(
-            client, model, image_b64, hint, prompt_text,
-            provider=_provider or "groq", mode=mode,
+            client,
+            model,
+            image_b64,
+            hint,
+            prompt_text,
+            mode=mode,
         )
     except Exception as error:
         logger.exception("Vision call failed")
@@ -527,6 +586,13 @@ def _assemble(analysis: dict, fdc_api_key: str) -> ScanResponse:
             )
         )
 
+    # Plausibility gate: clamp implausible per-item grams to a per-class bound
+    # (scaling macros) BEFORE totals/delta are computed, so nothing implausible
+    # is ever logged. Runs on the model/USDA estimate; the volumetric pipeline
+    # gates on measured volume instead.
+    for item in items:
+        plausibility.adjust_item(item)
+
     totals = Totals(
         calories=sum(i.calories for i in items),
         protein_grams=sum(i.protein_grams for i in items),
@@ -572,8 +638,54 @@ def _assemble(analysis: dict, fdc_api_key: str) -> ScanResponse:
     )
 
 
+CALORIEMAMA_URL = "https://caloriemama.ai/api/food_recognition_proxy"
+
+
+@app.post("/v2/scan")
+async def v2_scan(
+    image: UploadFile = File(...),
+    hint: str | None = Form(default=None),  # accepted but CalorieMama has no hint input
+) -> JSONResponse:
+    """Riva Snap v2: proxy a food photo to CalorieMama's recognition endpoint.
+    The endpoint gates on Referer/Origin (it powers CalorieMama's own web demo),
+    not an API key, so we send those server-side. A browser can't call it
+    directly (no CORS headers), which is why this proxy exists."""
+    raw = await image.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Empty image upload.")
+
+    img = Image.open(io.BytesIO(raw))
+    if img.mode != "RGB":
+        img = img.convert("RGB")
+    img = img.resize((544, 544))
+    buffer = io.BytesIO()
+    img.save(buffer, format="JPEG")
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp = await client.post(
+                CALORIEMAMA_URL,
+                headers={"Referer": "https://caloriemama.ai/", "Origin": "https://caloriemama.ai"},
+                files={"media": ("image.jpeg", buffer.getvalue(), "image/jpeg")},
+            )
+    except httpx.HTTPError as error:
+        raise HTTPException(status_code=502, detail=f"CalorieMama request failed: {error}")
+
+    try:
+        payload = resp.json()
+    except ValueError:
+        payload = {"raw": resp.text[:2000]}
+    return JSONResponse(status_code=resp.status_code, content=payload)
+
+
+if volumetric_router is not None:
+    app.include_router(volumetric_router)
+else:
+    logger.warning("Volumetric deps (numpy/opencv) not installed; /v1/scan/volumetric disabled.")
+
 # Mobile web tester — served by the API itself so the phone needs only the
 # Mac's LAN address (same origin, no base-URL config).
+# Anything registered after this mount 404s — the "/" mount is a catch-all.
 app.mount(
     "/",
     StaticFiles(directory=Path(__file__).resolve().parent.parent / "web", html=True),

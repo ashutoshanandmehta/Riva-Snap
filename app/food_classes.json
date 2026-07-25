@@ -1,0 +1,123 @@
+{
+  "_note": "Per-food-class priors + plausibility bounds. footprint_cm/height_cm seed metric scale and the parametric volume model; volume_ml [min,max] is the plausibility gate; density_g_ml and kcal_100g convert volume->mass->calories. Priors ONLY — refined per detected class, never ground truth. New/unknown classes fall back to _generic.",
+  "_generic": {
+    "aliases": [],
+    "footprint_cm": [6, 12, 20],
+    "height_cm": [2, 5, 12],
+    "density_g_ml": [0.3, 0.6, 1.1],
+    "kcal_100g": 180,
+    "volume_ml": [30, 1500]
+  },
+  "burger": {
+    "aliases": ["burger", "cheeseburger", "hamburger", "beef burger", "sandwich", "slider"],
+    "footprint_cm": [8, 11, 15],
+    "height_cm": [4, 7, 12],
+    "density_g_ml": [0.35, 0.55, 0.8],
+    "kcal_100g": 250,
+    "volume_ml": [150, 1300]
+  },
+  "pizza_slice": {
+    "aliases": ["pizza", "pizza slice", "slice of pizza"],
+    "footprint_cm": [12, 16, 22],
+    "height_cm": [1.5, 2.5, 4],
+    "density_g_ml": [0.4, 0.6, 0.9],
+    "kcal_100g": 266,
+    "volume_ml": [120, 700]
+  },
+  "rice": {
+    "aliases": ["rice", "brown rice", "white rice", "fried rice", "biryani", "pilaf"],
+    "footprint_cm": [8, 13, 20],
+    "height_cm": [2, 4, 8],
+    "density_g_ml": [0.6, 0.85, 1.0],
+    "kcal_100g": 130,
+    "volume_ml": [80, 900]
+  },
+  "pasta": {
+    "aliases": ["pasta", "noodles", "spaghetti", "penne", "mac and cheese"],
+    "footprint_cm": [9, 14, 22],
+    "height_cm": [2, 4, 9],
+    "density_g_ml": [0.4, 0.6, 0.9],
+    "kcal_100g": 160,
+    "volume_ml": [100, 1000]
+  },
+  "salad": {
+    "aliases": ["salad", "greens", "mixed greens", "leafy salad"],
+    "footprint_cm": [10, 16, 26],
+    "height_cm": [2, 5, 12],
+    "density_g_ml": [0.1, 0.25, 0.5],
+    "kcal_100g": 90,
+    "volume_ml": [100, 1800]
+  },
+  "soup": {
+    "aliases": ["soup", "sauce", "stew", "broth", "dip"],
+    "footprint_cm": [8, 12, 18],
+    "height_cm": [2, 4, 7],
+    "density_g_ml": [0.9, 1.0, 1.1],
+    "kcal_100g": 90,
+    "volume_ml": [80, 800]
+  },
+  "fries": {
+    "aliases": ["fries", "french fries", "chips", "wedges"],
+    "footprint_cm": [8, 13, 20],
+    "height_cm": [2, 4, 8],
+    "density_g_ml": [0.25, 0.4, 0.6],
+    "kcal_100g": 312,
+    "volume_ml": [80, 900]
+  },
+  "meat": {
+    "aliases": ["steak", "chicken", "grilled chicken", "beef", "pork", "fish fillet", "patty"],
+    "footprint_cm": [7, 11, 18],
+    "height_cm": [1.5, 3, 6],
+    "density_g_ml": [0.8, 1.0, 1.1],
+    "kcal_100g": 220,
+    "volume_ml": [50, 700]
+  },
+  "fruit": {
+    "aliases": ["fruit", "apple", "berries", "grapes", "melon", "watermelon", "banana"],
+    "footprint_cm": [6, 12, 22],
+    "height_cm": [2, 5, 12],
+    "density_g_ml": [0.5, 0.7, 1.0],
+    "kcal_100g": 55,
+    "volume_ml": [50, 1500]
+  },
+  "fried_snack": {
+    "aliases": ["nimki", "samosa", "pakora", "pakoda", "vada", "kachori", "mathri", "murukku", "bhaji", "fritter", "fried snack", "namkeen", "spring roll"],
+    "footprint_cm": [3, 6, 12],
+    "height_cm": [1, 3, 6],
+    "density_g_ml": [0.3, 0.5, 0.8],
+    "kcal_100g": 450,
+    "volume_ml": [20, 400]
+  },
+  "flatbread": {
+    "aliases": ["roti", "chapati", "naan", "paratha", "dosa", "puri", "poori", "flatbread", "tortilla", "bhakri", "thepla"],
+    "footprint_cm": [12, 16, 25],
+    "height_cm": [0.3, 0.8, 2.5],
+    "density_g_ml": [0.4, 0.55, 0.8],
+    "kcal_100g": 300,
+    "volume_ml": [30, 350]
+  },
+  "curry_gravy": {
+    "aliases": ["curry", "gravy", "masala", "korma", "butter chicken", "paneer", "kadhai", "bhuna", "makhani", "kofta"],
+    "footprint_cm": [8, 12, 18],
+    "height_cm": [2, 4, 8],
+    "density_g_ml": [0.85, 1.0, 1.15],
+    "kcal_100g": 150,
+    "volume_ml": [80, 700]
+  },
+  "dal": {
+    "aliases": ["dal", "daal", "dhal", "lentil", "sambar", "sambhar", "rasam"],
+    "footprint_cm": [8, 12, 18],
+    "height_cm": [2, 4, 8],
+    "density_g_ml": [0.9, 1.05, 1.15],
+    "kcal_100g": 105,
+    "volume_ml": [80, 700]
+  },
+  "sweet": {
+    "aliases": ["laddu", "ladoo", "barfi", "burfi", "gulab jamun", "jalebi", "halwa", "kheer", "rasgulla", "mithai", "brownie", "cake", "pastry"],
+    "footprint_cm": [3, 5, 10],
+    "height_cm": [2, 4, 7],
+    "density_g_ml": [0.6, 1.0, 1.4],
+    "kcal_100g": 380,
+    "volume_ml": [20, 300]
+  }
+}

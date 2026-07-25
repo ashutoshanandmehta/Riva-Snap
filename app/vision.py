@@ -1,8 +1,10 @@
 """Vision call: one image in, strict-schema food analysis out.
 
-Provider-agnostic via the OpenAI SDK: OpenAI directly, or Groq through its
-OpenAI-compatible endpoint (fast, cheap Llama-4 vision). Chat Completions is
-used because both providers support it identically.
+Claude (Anthropic) via the native Messages API with structured outputs. The
+model is used purely as a food *identifier* — portion/volume is handled
+downstream by deterministic code — so a perception-tier model is enough.
+Default is Claude Sonnet; override with RIVA_SCAN_MODEL (e.g. claude-opus-4-8
+for quality, claude-haiku-4-5 for cost).
 """
 
 import json
@@ -10,7 +12,7 @@ import logging
 import re
 from pathlib import Path
 
-from openai import OpenAI
+import anthropic
 
 from .config import Settings
 
@@ -18,15 +20,8 @@ logger = logging.getLogger("scan.vision")
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
-GROQ_BASE_URL = "https://api.groq.com/openai/v1"
-
-# Model preferences per provider. OpenAI entries are exact ids; Groq entries
-# are substring tokens (their ids carry org prefixes and revision suffixes).
-OPENAI_PREFERENCE = ["gpt-5.2", "gpt-5.1", "gpt-5", "gpt-4.1", "gpt-4o"]
-OPENAI_FALLBACK = "gpt-4o"
-# Groq rotates preview models: Llama 4 vision vanished from the account in
-# July 2026, leaving Qwen 3.6 as the vision-capable option there.
-GROQ_PREFERENCE_TOKENS = ["llama-4-maverick", "llama-4-scout", "qwen3.6", "qwen3"]
+# Identification only, so a perception-tier model is the default.
+DEFAULT_MODEL = "claude-sonnet-5"
 
 # Strict Structured Output schema for the vision call.
 SCAN_SCHEMA: dict = {
@@ -53,6 +48,7 @@ SCAN_SCHEMA: dict = {
                 "additionalProperties": False,
                 "required": [
                     "name",
+                    "food_class",
                     "portion_desc",
                     "portion_grams",
                     "is_liquid",
@@ -68,6 +64,30 @@ SCAN_SCHEMA: dict = {
                 ],
                 "properties": {
                     "name": {"type": "string"},
+                    "food_class": {
+                        "type": "string",
+                        "enum": [
+                            "burger",
+                            "pizza_slice",
+                            "rice",
+                            "pasta",
+                            "salad",
+                            "soup",
+                            "fries",
+                            "meat",
+                            "fruit",
+                            "fried_snack",
+                            "flatbread",
+                            "curry_gravy",
+                            "dal",
+                            "sweet",
+                            "other",
+                        ],
+                        "description": (
+                            "Best-matching plausibility class for this item, for portion"
+                            " gating downstream — 'other' if none clearly fit."
+                        ),
+                    },
                     "portion_desc": {"type": "string"},
                     "portion_grams": {
                         "type": "number",
@@ -111,55 +131,59 @@ def load_prompt(version: str) -> str:
     return (PROMPTS_DIR / f"scan_{version}.md").read_text()
 
 
-def make_client(config: Settings) -> tuple[OpenAI, str]:
-    """Returns (client, provider). OpenAI wins when both keys are set."""
-    if config.openai_api_key:
-        return OpenAI(api_key=config.openai_api_key), "openai"
-    if config.groq_api_key:
-        return OpenAI(api_key=config.groq_api_key, base_url=GROQ_BASE_URL), "groq"
-    raise RuntimeError(
-        "No LLM key configured. Set GROQ_API_KEY or OPENAI_API_KEY in scan-service/.env."
-    )
+def make_client(config: Settings) -> anthropic.Anthropic:
+    if not config.anthropic_api_key:
+        raise RuntimeError("ANTHROPIC_API_KEY is not set in backend/.env.")
+    return anthropic.Anthropic(api_key=config.anthropic_api_key)
 
 
-def resolve_model(client: OpenAI, provider: str, override: str) -> str:
-    """Picks the vision model: explicit override, else best available."""
-    if override:
-        return override
-    try:
-        available = [m.id for m in client.models.list()]
-    except Exception as error:
-        logger.warning("Could not list models (%s)", error)
-        available = []
+def resolve_model(config: Settings) -> str:
+    """Explicit RIVA_SCAN_MODEL override, else the Sonnet default."""
+    return config.riva_scan_model or DEFAULT_MODEL
 
-    if provider == "groq":
-        for token in GROQ_PREFERENCE_TOKENS:
-            for model_id in available:
-                if token in model_id:
-                    return model_id
-        raise RuntimeError(
-            "No vision-capable model available on this Groq account. "
-            "Set OPENAI_API_KEY in .env to switch providers, or set "
-            "RIVA_SCAN_MODEL to a vision model you have access to. "
-            f"Available: {', '.join(available) or 'none'}"
-        )
 
-    for preferred in OPENAI_PREFERENCE:
-        if preferred in available:
-            return preferred
-    return OPENAI_FALLBACK
+def _nullable_to_anyof(node: object) -> object:
+    """Rewrite JSON-Schema ``"type": [..., "null"]`` unions into ``anyOf``.
+
+    Anthropic structured outputs accept anyOf but not the array-of-types form
+    that SCAN_SCHEMA uses (e.g. ``"type": ["string", "null"]``). Keeping one
+    schema source and transforming it avoids maintaining a second copy."""
+    if isinstance(node, dict):
+        node = {key: _nullable_to_anyof(value) for key, value in node.items()}
+        type_field = node.get("type")
+        if isinstance(type_field, list):
+            siblings = {k: v for k, v in node.items() if k != "type"}
+            variants = [{"type": tp, **siblings} for tp in type_field if tp != "null"]
+            if "null" in type_field:
+                variants.append({"type": "null"})
+            return variants[0] if len(variants) == 1 else {"anyOf": variants}
+        return node
+    if isinstance(node, list):
+        return [_nullable_to_anyof(item) for item in node]
+    return node
+
+
+_ANTHROPIC_SCHEMA = _nullable_to_anyof(SCAN_SCHEMA)
+
+
+def _anthropic_text(response: object) -> str | None:
+    """First text block of a Messages response (skips any thinking blocks)."""
+    return next((block.text for block in response.content if block.type == "text"), None)
 
 
 def analyze_image(
-    client: OpenAI,
+    client: anthropic.Anthropic,
     model: str,
     image_b64: str,
     hint: str | None,
     prompt_text: str,
-    provider: str = "groq",
     mode: str = "auto",
 ) -> dict:
-    """Runs the vision analysis and returns the parsed schema-shaped dict."""
+    """Claude vision: one image + prompt -> schema-shaped dict.
+
+    Thinking is disabled — this is a perception/identification task and the
+    schema already constrains the output — except on Haiku, which predates the
+    ``disabled`` option and simply runs without thinking by default."""
     user_text = "Analyze this photo."
     # Mode steering is intentionally minimal: telling the model the user
     # "intends to log food" makes it FABRICATE meals on ambiguous images
@@ -176,65 +200,46 @@ def analyze_image(
     if hint:
         user_text += f" Context from the user: {hint}"
 
-    # Low temperature keeps portion/nutrition estimates consistent scan-to-scan.
-    # OpenAI's reasoning models reject the parameter, so Groq-only.
-    extra_params: dict = {"temperature": 0.2} if provider == "groq" else {}
-    if provider == "groq" and "qwen" in model:
-        # Qwen on Groq is a reasoning model. Left to think, it can spend the
-        # whole completion budget reasoning and emit empty content in JSON
-        # mode, so turn reasoning off for this structured perception task.
-        extra_params["extra_body"] = {"reasoning_effort": "none"}
-        # Groq's free tier TPM limiter counts prompt PLUS this allowance per
-        # request (8000 limit); keep the sum under it or every scan is 413.
-        extra_params["max_completion_tokens"] = 4000
-
-    messages = [
-        {"role": "system", "content": prompt_text},
-        {
-            "role": "user",
-            "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                },
-                {"type": "text", "text": user_text},
-            ],
-        },
-    ]
+    image_block = {
+        "type": "image",
+        "source": {"type": "base64", "media_type": "image/jpeg", "data": image_b64},
+    }
+    extra: dict = {} if "haiku" in model else {"thinking": {"type": "disabled"}}
 
     try:
-        response = client.chat.completions.create(
+        response = client.messages.create(
             model=model,
-            messages=messages,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "food_scan",
-                    "strict": True,
-                    "schema": SCAN_SCHEMA,
-                },
-            },
-            **extra_params,
+            max_tokens=4096,
+            system=prompt_text,
+            output_config={"format": {"type": "json_schema", "schema": _ANTHROPIC_SCHEMA}},
+            messages=[
+                {"role": "user", "content": [image_block, {"type": "text", "text": user_text}]}
+            ],
+            **extra,
         )
-        return _parse(response.choices[0].message.content)
+        return _parse(_anthropic_text(response))
     except Exception as error:
-        # Some provider/model combos reject strict json_schema — fall back to
-        # json_object mode with the schema stated in the prompt.
-        logger.warning("json_schema mode failed (%s); retrying with json_object", error)
+        # Older SDKs / models may reject structured outputs — fall back to the
+        # schema stated in the prompt.
+        logger.warning(
+            "Anthropic structured output failed (%s); retrying with schema in prompt",
+            error,
+        )
 
-    # Compact separators shave a few hundred prompt tokens, which matters
-    # against Groq's free tier per-request token ceiling.
-    messages[1]["content"][-1]["text"] += (
+    fallback_text = user_text + (
         "\nReturn ONLY a JSON object that validates against this JSON Schema "
         "(no prose, no markdown):\n" + json.dumps(SCAN_SCHEMA, separators=(",", ":"))
     )
-    response = client.chat.completions.create(
+    response = client.messages.create(
         model=model,
-        messages=messages,
-        response_format={"type": "json_object"},
-        **extra_params,
+        max_tokens=4096,
+        system=prompt_text,
+        messages=[
+            {"role": "user", "content": [image_block, {"type": "text", "text": fallback_text}]}
+        ],
+        **extra,
     )
-    return _parse(response.choices[0].message.content)
+    return _parse(_anthropic_text(response))
 
 
 def _parse(content: str | None) -> dict:

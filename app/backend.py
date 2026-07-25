@@ -33,9 +33,7 @@ def _service_headers(config: Settings) -> dict:
 
 def is_configured(config: Settings) -> bool:
     return bool(
-        config.supabase_url
-        and config.supabase_anon_key
-        and config.supabase_service_role_key
+        config.supabase_url and config.supabase_anon_key and config.supabase_service_role_key
     )
 
 
@@ -91,9 +89,12 @@ def device_session(config: Settings, device_id: str) -> dict:
             if created.status_code not in (200, 201):
                 logger.error(
                     "device account create failed: %s %s",
-                    created.status_code, created.text[:300],
+                    created.status_code,
+                    created.text[:300],
                 )
-                raise HTTPException(status_code=502, detail="Could not set up this device. Try again.")
+                raise HTTPException(
+                    status_code=502, detail="Could not set up this device. Try again."
+                )
             response = grant()
     except httpx.HTTPError as error:
         raise HTTPException(status_code=503, detail=f"Auth service unreachable: {error}") from error
@@ -131,65 +132,111 @@ def _rpc(config: Settings, function: str, params: dict) -> list[dict]:
 
 def log_scan(config: Settings, user_id: str, entry: dict) -> dict:
     """Persists an accepted scan via the log_scan RPC; returns day totals."""
-    rows = _rpc(config, "log_scan", {
-        "p_user_id": user_id,
-        "p_scan_type": entry["scan_type"],
-        "p_items": entry["items"],
-        "p_calories": entry["calories"],
-        "p_protein_grams": entry["protein_grams"],
-        "p_carb_grams": entry["carb_grams"],
-        "p_fiber_grams": entry["fiber_grams"],
-        "p_water_ounces": entry["water_ounces"],
-        "p_model": entry.get("model"),
-        "p_prompt_version": entry.get("prompt_version"),
-    })
+    rows = _rpc(
+        config,
+        "log_scan",
+        {
+            "p_user_id": user_id,
+            "p_scan_type": entry["scan_type"],
+            "p_items": entry["items"],
+            "p_calories": entry["calories"],
+            "p_protein_grams": entry["protein_grams"],
+            "p_carb_grams": entry["carb_grams"],
+            "p_fiber_grams": entry["fiber_grams"],
+            "p_water_ounces": entry["water_ounces"],
+            "p_model": entry.get("model"),
+            "p_prompt_version": entry.get("prompt_version"),
+        },
+    )
     if not rows:
         raise HTTPException(status_code=502, detail="Log saved but totals were not returned.")
     return rows[0]
 
 
 def log_weight(config: Settings, user_id: str, pounds: float, measured_at: str | None) -> dict:
-    rows = _rpc(config, "log_weight", {
-        "p_user_id": user_id,
-        "p_pounds": pounds,
-        "p_measured_at": measured_at,
-    })
+    rows = _rpc(
+        config,
+        "log_weight",
+        {
+            "p_user_id": user_id,
+            "p_pounds": pounds,
+            "p_measured_at": measured_at,
+        },
+    )
     if not rows:
         raise HTTPException(status_code=502, detail="Weight saved but was not returned.")
     return rows[0]
 
 
 def log_shot(config: Settings, user_id: str, entry: dict) -> dict:
-    rows = _rpc(config, "log_shot", {
-        "p_user_id": user_id,
-        "p_medication_name": entry["medication_name"],
-        "p_dose_mg": entry["dose_mg"],
-        "p_injection_site": entry["injection_site"],
-        "p_comfort_rating": entry.get("comfort_rating"),
-        "p_taken_at": entry.get("taken_at"),
-    })
+    rows = _rpc(
+        config,
+        "log_shot",
+        {
+            "p_user_id": user_id,
+            "p_medication_name": entry["medication_name"],
+            "p_dose_mg": entry["dose_mg"],
+            "p_injection_site": entry["injection_site"],
+            "p_comfort_rating": entry.get("comfort_rating"),
+            "p_taken_at": entry.get("taken_at"),
+        },
+    )
     if not rows:
         raise HTTPException(status_code=502, detail="Shot saved but was not returned.")
     return rows[0]
 
 
-def log_side_effects(config: Settings, user_id: str, effects: list[dict], note: str | None) -> list[dict]:
-    return _rpc(config, "log_side_effects", {
-        "p_user_id": user_id,
-        "p_effects": effects,
-        "p_note": note,
-    })
+def log_side_effects(
+    config: Settings, user_id: str, effects: list[dict], note: str | None
+) -> list[dict]:
+    return _rpc(
+        config,
+        "log_side_effects",
+        {
+            "p_user_id": user_id,
+            "p_effects": effects,
+            "p_note": note,
+        },
+    )
 
 
 def log_checkin(config: Settings, user_id: str, question_id: str, option_code: str) -> dict:
-    rows = _rpc(config, "log_checkin", {
-        "p_user_id": user_id,
-        "p_question_id": question_id,
-        "p_option_code": option_code,
-    })
+    rows = _rpc(
+        config,
+        "log_checkin",
+        {
+            "p_user_id": user_id,
+            "p_question_id": question_id,
+            "p_option_code": option_code,
+        },
+    )
     if not rows:
         raise HTTPException(status_code=502, detail="Answer saved but was not returned.")
     return rows[0]
+
+
+def log_wellness_session(
+    config: Settings, user_id: str, practice_id: str, kind: str, minutes: int
+) -> dict:
+    rows = _rpc(
+        config,
+        "log_wellness_session",
+        {
+            "p_user_id": user_id,
+            "p_practice_id": practice_id,
+            "p_kind": kind,
+            "p_minutes": minutes,
+        },
+    )
+    if not rows:
+        raise HTTPException(status_code=502, detail="Session saved but was not returned.")
+    return rows[0]
+
+
+def wellness_summary(config: Settings, user_id: str) -> dict | None:
+    """Today's minutes and streak (profile-timezone day), or None."""
+    rows = _rpc(config, "wellness_summary", {"p_user_id": user_id})
+    return rows[0] if rows else None
 
 
 # ---------------------------------------------------------------------------
@@ -204,22 +251,27 @@ _MIGRATION_DETAIL = (
 )
 
 _PROFILE_COLUMNS = (
-    "name,date_of_birth,gender,clinician_name,"
-    "start_weight,goal_weight,height_inches,timezone"
+    "name,date_of_birth,gender,clinician_name,start_weight,goal_weight,height_inches,timezone"
 )
-_GOAL_COLUMNS = "protein_goal,carb_goal,fiber_goal,water_goal"
+_GOAL_COLUMNS = "protein_goal,carb_goal,fiber_goal,water_goal,wellness_minutes_goal"
+# Pre-0003 databases lack wellness_minutes_goal; used to degrade that field alone.
+_GOAL_COLUMNS_LEGACY = "protein_goal,carb_goal,fiber_goal,water_goal"
 _HEALTH_GOAL_COLUMNS = (
     "glp1_support,weight_mgmt,nutrition_diet,muscle_preserve,exercise_move,sleep_recovery"
 )
-_PLAN_COLUMNS = (
-    "name,current_dose_mg,cadence_days,dose_frequency,reminder_description,start_date"
-)
+_PLAN_COLUMNS = "name,current_dose_mg,cadence_days,dose_frequency,reminder_description,start_date"
 
 PROFILE_FIELDS = (
-    "name", "date_of_birth", "gender", "clinician_name",
-    "start_weight", "goal_weight", "height_inches", "timezone",
+    "name",
+    "date_of_birth",
+    "gender",
+    "clinician_name",
+    "start_weight",
+    "goal_weight",
+    "height_inches",
+    "timezone",
 )
-GOAL_FIELDS = ("protein_goal", "carb_goal", "fiber_goal", "water_goal")
+GOAL_FIELDS = ("protein_goal", "carb_goal", "fiber_goal", "water_goal", "wellness_minutes_goal")
 PLAN_FIELDS = ("name", "current_dose_mg", "cadence_days", "reminder_description")
 
 _PLAN_DEFAULTS = {"name": "Semaglutide", "current_dose_mg": 0.5, "cadence_days": 7}
@@ -233,16 +285,25 @@ def _postgrest_code(response: httpx.Response) -> str | None:
     return body.get("code") if isinstance(body, dict) else None
 
 
-def _rest(config: Settings, method: str, table: str, params: dict | None,
-          payload: dict | None, error_detail: str) -> list:
+def _rest(
+    config: Settings,
+    method: str,
+    table: str,
+    params: dict | None,
+    payload: dict | None,
+    error_detail: str,
+) -> list:
     """One PostgREST table call with the service role; returns parsed rows."""
     headers = _service_headers(config)
     if payload is not None:
         headers["Prefer"] = "return=representation"
     try:
         response = _http.request(
-            method, f"{config.supabase_url}/rest/v1/{table}",
-            headers=headers, params=params, json=payload,
+            method,
+            f"{config.supabase_url}/rest/v1/{table}",
+            headers=headers,
+            params=params,
+            json=payload,
         )
     except httpx.HTTPError as error:
         raise HTTPException(status_code=503, detail=f"Backend unreachable: {error}") from error
@@ -271,12 +332,31 @@ def _insert(config: Settings, table: str, payload: dict, params: dict | None = N
 def get_me(config: Settings, user_id: str) -> dict:
     """Profile row, goals, health goal flags, and the active plan (or None)."""
     profiles = _select(config, "profiles", {"id": f"eq.{user_id}", "select": _PROFILE_COLUMNS})
-    goals = _select(config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS})
-    health = _select(config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS})
-    plans = _select(config, "medication_plans", {
-        "user_id": f"eq.{user_id}", "is_active": "eq.true",
-        "select": _PLAN_COLUMNS, "limit": "1",
-    })
+    try:
+        goals = _select(
+            config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS}
+        )
+    except HTTPException:
+        # Pre-0003 DBs lack wellness_minutes_goal (undefined_column 42703). Degrade
+        # just that field with a default so /v1/me, /v1/dashboard, /v1/goals still work.
+        goals = _select(
+            config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS_LEGACY}
+        )
+        for row in goals:
+            row.setdefault("wellness_minutes_goal", 45)
+    health = _select(
+        config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS}
+    )
+    plans = _select(
+        config,
+        "medication_plans",
+        {
+            "user_id": f"eq.{user_id}",
+            "is_active": "eq.true",
+            "select": _PLAN_COLUMNS,
+            "limit": "1",
+        },
+    )
     if not (profiles and goals and health):
         # The signup trigger provisions these rows, so a miss is a broken account.
         logger.error("account rows missing for user %s", user_id)
@@ -292,7 +372,9 @@ def get_me(config: Settings, user_id: str) -> dict:
 def update_profile(config: Settings, user_id: str, fields: dict) -> dict:
     payload = {key: fields[key] for key in PROFILE_FIELDS if key in fields}
     if payload:
-        rows = _patch(config, "profiles", {"id": f"eq.{user_id}", "select": _PROFILE_COLUMNS}, payload)
+        rows = _patch(
+            config, "profiles", {"id": f"eq.{user_id}", "select": _PROFILE_COLUMNS}, payload
+        )
     else:
         rows = _select(config, "profiles", {"id": f"eq.{user_id}", "select": _PROFILE_COLUMNS})
     if not rows:
@@ -303,26 +385,44 @@ def update_profile(config: Settings, user_id: str, fields: dict) -> dict:
 def update_goals(config: Settings, user_id: str, fields: dict) -> dict:
     payload = {key: fields[key] for key in GOAL_FIELDS if key in fields}
     if payload:
-        rows = _patch(config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS}, payload)
+        rows = _patch(
+            config,
+            "nutrition_goals",
+            {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS},
+            payload,
+        )
     else:
-        rows = _select(config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS})
+        rows = _select(
+            config, "nutrition_goals", {"user_id": f"eq.{user_id}", "select": _GOAL_COLUMNS}
+        )
     if not rows:
         raise HTTPException(status_code=502, detail=_SAVE_DETAIL)
     return rows[0]
 
 
 HEALTH_GOAL_FIELDS = (
-    "glp1_support", "weight_mgmt", "nutrition_diet",
-    "muscle_preserve", "exercise_move", "sleep_recovery",
+    "glp1_support",
+    "weight_mgmt",
+    "nutrition_diet",
+    "muscle_preserve",
+    "exercise_move",
+    "sleep_recovery",
 )
 
 
 def update_health_goals(config: Settings, user_id: str, fields: dict) -> dict:
     payload = {key: fields[key] for key in HEALTH_GOAL_FIELDS if key in fields}
     if payload:
-        rows = _patch(config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS}, payload)
+        rows = _patch(
+            config,
+            "health_goals",
+            {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS},
+            payload,
+        )
     else:
-        rows = _select(config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS})
+        rows = _select(
+            config, "health_goals", {"user_id": f"eq.{user_id}", "select": _HEALTH_GOAL_COLUMNS}
+        )
     if not rows:
         raise HTTPException(status_code=502, detail=_SAVE_DETAIL)
     return rows[0]
@@ -331,56 +431,135 @@ def update_health_goals(config: Settings, user_id: str, fields: dict) -> dict:
 def upsert_plan(config: Settings, user_id: str, fields: dict) -> dict:
     """Updates the active medication plan, creating one on first use."""
     payload = {key: fields[key] for key in PLAN_FIELDS if key in fields}
-    active = _select(config, "medication_plans", {
-        "user_id": f"eq.{user_id}", "is_active": "eq.true",
-        "select": "id," + _PLAN_COLUMNS, "limit": "1",
-    })
+    active = _select(
+        config,
+        "medication_plans",
+        {
+            "user_id": f"eq.{user_id}",
+            "is_active": "eq.true",
+            "select": "id," + _PLAN_COLUMNS,
+            "limit": "1",
+        },
+    )
     if active:
         if not payload:
             plan = dict(active[0])
             plan.pop("id", None)
             return plan
-        rows = _patch(config, "medication_plans",
-                      {"id": f"eq.{active[0]['id']}", "select": _PLAN_COLUMNS}, payload)
+        rows = _patch(
+            config,
+            "medication_plans",
+            {"id": f"eq.{active[0]['id']}", "select": _PLAN_COLUMNS},
+            payload,
+        )
     else:
-        rows = _insert(config, "medication_plans",
-                       {"user_id": user_id, **_PLAN_DEFAULTS, **payload},
-                       params={"select": _PLAN_COLUMNS})
+        rows = _insert(
+            config,
+            "medication_plans",
+            {"user_id": user_id, **_PLAN_DEFAULTS, **payload},
+            params={"select": _PLAN_COLUMNS},
+        )
     if not rows:
         raise HTTPException(status_code=502, detail=_SAVE_DETAIL)
     return rows[0]
 
 
 def list_weights(config: Settings, user_id: str, limit: int) -> list:
-    return _select(config, "weights", {
-        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
-        "select": "id,pounds,dose_mg,measured_at",
-        "order": "measured_at.desc", "limit": str(limit),
-    })
+    return _select(
+        config,
+        "weights",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "select": "id,pounds,dose_mg,measured_at",
+            "order": "measured_at.desc",
+            "limit": str(limit),
+        },
+    )
 
 
 def list_shots(config: Settings, user_id: str, limit: int) -> list:
-    return _select(config, "shots", {
-        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
-        "select": "id,medication_name,dose_mg,taken_at,injection_site,comfort_rating",
-        "order": "taken_at.desc", "limit": str(limit),
-    })
+    return _select(
+        config,
+        "shots",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "select": "id,medication_name,dose_mg,taken_at,injection_site,comfort_rating",
+            "order": "taken_at.desc",
+            "limit": str(limit),
+        },
+    )
+
+
+def list_wellness_sessions(config: Settings, user_id: str, days: int) -> list:
+    """Recent sessions, newest first, for the suggestion context."""
+    since = (date.today() - timedelta(days=days)).isoformat()
+    return _select(
+        config,
+        "wellness_sessions",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "day": f"gte.{since}",
+            "select": "day,practice_id,kind,minutes",
+            "order": "day.desc",
+        },
+    )
+
+
+def get_cached_suggestions(config: Settings, user_id: str, day: str) -> dict | None:
+    """The user's cached suggestion payload for the day, or None."""
+    rows = _select(
+        config,
+        "wellness_suggestions",
+        {
+            "user_id": f"eq.{user_id}",
+            "day": f"eq.{day}",
+            "select": "payload",
+            "limit": "1",
+        },
+    )
+    return rows[0]["payload"] if rows else None
+
+
+def cache_suggestions(config: Settings, user_id: str, day: str, payload: dict) -> None:
+    _insert(
+        config,
+        "wellness_suggestions",
+        {
+            "user_id": user_id,
+            "day": day,
+            "payload": payload,
+        },
+    )
 
 
 def list_side_effects(config: Settings, user_id: str, days: int) -> list:
     """Daily logs for the window, each with its effects, newest first."""
     since = (date.today() - timedelta(days=days)).isoformat()
-    logs = _select(config, "side_effect_logs", {
-        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
-        "log_date": f"gte.{since}",
-        "select": "id,log_date,note", "order": "log_date.desc",
-    })
+    logs = _select(
+        config,
+        "side_effect_logs",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "log_date": f"gte.{since}",
+            "select": "id,log_date,note",
+            "order": "log_date.desc",
+        },
+    )
     if not logs:
         return []
     log_ids = ",".join(log["id"] for log in logs)
-    items = _select(config, "side_effect_log_items", {
-        "log_id": f"in.({log_ids})", "select": "log_id,effect,severity",
-    })
+    items = _select(
+        config,
+        "side_effect_log_items",
+        {
+            "log_id": f"in.({log_ids})",
+            "select": "log_id,effect,severity",
+        },
+    )
     by_log: dict[str, list] = {}
     for item in items:
         by_log.setdefault(item["log_id"], []).append(
@@ -392,20 +571,76 @@ def list_side_effects(config: Settings, user_id: str, days: int) -> list:
     ]
 
 
+def list_sleep_checkins(config: Settings, user_id: str, since: str) -> list[dict]:
+    """Sleep-quality check-ins since the date, newest first (also feeds the
+    wellness suggestion context)."""
+    sleep_checkins: list[dict] = []
+    checkins = _select(
+        config,
+        "checkins",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "checkin_date": f"gte.{since}",
+            "select": "id,checkin_date",
+            "order": "checkin_date.desc",
+        },
+    )
+    if checkins:
+        ids = ",".join(row["id"] for row in checkins)
+        answers = _select(
+            config,
+            "checkin_answers",
+            {
+                "checkin_id": f"in.({ids})",
+                "question_id": "eq.sleep",
+                "select": "checkin_id,option_code",
+            },
+        )
+        options = _select(
+            config,
+            "checkin_options",
+            {
+                "question_id": "eq.sleep",
+                "select": "code,label,value",
+            },
+        )
+        by_code = {opt["code"]: opt for opt in options}
+        by_checkin = {a["checkin_id"]: a["option_code"] for a in answers}
+        for row in checkins:
+            code = by_checkin.get(row["id"])
+            option = by_code.get(code or "")
+            if option:
+                sleep_checkins.append(
+                    {
+                        "checkin_date": row["checkin_date"],
+                        "value": option["value"],
+                        "label": option["label"],
+                    }
+                )
+    return sleep_checkins
+
+
 def get_dashboard(config: Settings, user_id: str) -> dict:
     """Everything the app's dashboards need in one round trip: profile,
     goals, plan, this week's nutrition days, weight and shot history,
-    today's side effects, and the week's sleep check-ins."""
+    today's side effects, the week's sleep check-ins, and the wellness
+    summary."""
     me = get_me(config, user_id)
     today = date.today().isoformat()
     week_ago = (date.today() - timedelta(days=7)).isoformat()
 
-    week_nutrition = _select(config, "nutrition_days", {
-        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
-        "day": f"gte.{week_ago}",
-        "select": "day,calories,protein_grams,carb_grams,fiber_grams,water_ounces",
-        "order": "day.desc",
-    })
+    week_nutrition = _select(
+        config,
+        "nutrition_days",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "day": f"gte.{week_ago}",
+            "select": "day,calories,protein_grams,carb_grams,fiber_grams,water_ounces",
+            "order": "day.desc",
+        },
+    )
     today_row = next((row for row in week_nutrition if row["day"] == today), None)
 
     weights = list_weights(config, user_id, 90)
@@ -416,32 +651,20 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
         if log["log_date"] == today:
             effects_today = log["effects"]
 
-    sleep_checkins: list[dict] = []
-    checkins = _select(config, "checkins", {
-        "user_id": f"eq.{user_id}", "deleted_at": "is.null",
-        "checkin_date": f"gte.{week_ago}",
-        "select": "id,checkin_date", "order": "checkin_date.desc",
-    })
-    if checkins:
-        ids = ",".join(row["id"] for row in checkins)
-        answers = _select(config, "checkin_answers", {
-            "checkin_id": f"in.({ids})", "question_id": "eq.sleep",
-            "select": "checkin_id,option_code",
-        })
-        options = _select(config, "checkin_options", {
-            "question_id": "eq.sleep", "select": "code,label,value",
-        })
-        by_code = {opt["code"]: opt for opt in options}
-        by_checkin = {a["checkin_id"]: a["option_code"] for a in answers}
-        for row in checkins:
-            code = by_checkin.get(row["id"])
-            option = by_code.get(code or "")
-            if option:
-                sleep_checkins.append({
-                    "checkin_date": row["checkin_date"],
-                    "value": option["value"],
-                    "label": option["label"],
-                })
+    sleep_checkins = list_sleep_checkins(config, user_id, week_ago)
+
+    # Fail soft: a pre-0003 database serves the dashboard without wellness.
+    wellness = None
+    try:
+        summary = wellness_summary(config, user_id)
+        if summary:
+            wellness = {
+                "minutes_today": summary["minutes_today"],
+                "streak_days": summary["streak_days"],
+                "goal_minutes": me["nutrition_goals"].get("wellness_minutes_goal", 45),
+            }
+    except HTTPException:
+        logger.warning("wellness summary unavailable; dashboard degrades without it")
 
     return {
         "profile": me["profile"],
@@ -453,6 +676,7 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
         "shots": shots,
         "side_effects_today": effects_today,
         "sleep_checkins": sleep_checkins,
+        "wellness": wellness,
     }
 
 
@@ -477,6 +701,13 @@ def export_user(config: Settings, user_id: str) -> dict:
     for checkin in checkins:
         checkin["answers"] = answers_by_checkin.get(checkin["id"], [])
 
+    try:
+        wellness_sessions = _select(config, "wellness_sessions", {**owned, "order": "day.desc"})
+    except HTTPException:
+        # Pre-0003 DBs lack the wellness_sessions table; degrade that section only
+        # rather than failing the whole privacy export.
+        wellness_sessions = []
+
     return {
         "profile": profiles[0] if profiles else None,
         "nutrition_goals": goals[0] if goals else None,
@@ -488,6 +719,7 @@ def export_user(config: Settings, user_id: str) -> dict:
         "food_entries": _select(config, "food_entries", {**owned, "order": "created_at.desc"}),
         "side_effect_logs": logs,
         "checkins": checkins,
+        "wellness_sessions": wellness_sessions,
     }
 
 
