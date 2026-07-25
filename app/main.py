@@ -386,6 +386,14 @@ def list_weights(
     return WeightListResult(entries=rows)
 
 
+@app.get("/v1/food-entries")
+def food_entries(
+    limit: int | None = None, authorization: str | None = Header(default=None)
+) -> JSONResponse:
+    user_id = _require_user(authorization)
+    return JSONResponse(backend.list_food_entries(settings(), user_id, min(limit or 500, 500)))
+
+
 @app.get("/v1/shots", response_model=ShotListResult)
 def list_shots(limit: int = 60, authorization: str | None = Header(default=None)) -> ShotListResult:
     user_id = _require_user(authorization)

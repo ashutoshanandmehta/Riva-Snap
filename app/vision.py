@@ -39,7 +39,7 @@ SCAN_SCHEMA: dict = {
         },
         "plate": {
             "type": ["string", "null"],
-            "description": "Plate/bowl/container description incl. estimated size.",
+            "description": "A brief, natural one-line sentence describing the food and its setting, mentioning the approximate portion size so it can help calibrate estimates. Write it the way a person would say it, with no dashes and no parentheses.",
         },
         "items": {
             "type": "array",

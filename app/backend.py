@@ -478,6 +478,18 @@ def list_weights(config: Settings, user_id: str, limit: int) -> list:
     )
 
 
+def list_food_entries(config: Settings, user_id: str, limit: int | None = None) -> list[dict]:
+    params = {
+        "user_id": f"eq.{user_id}",
+        "deleted_at": "is.null",
+        "select": "day,scan_type,items,calories,protein_grams,water_ounces,created_at",
+        "order": "created_at.desc",
+    }
+    if limit is not None:
+        params["limit"] = str(limit)
+    return _select(config, "food_entries", params)
+
+
 def list_shots(config: Settings, user_id: str, limit: int) -> list:
     return _select(
         config,
