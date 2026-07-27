@@ -312,7 +312,8 @@ _GOAL_COLUMNS = "protein_goal,carb_goal,fiber_goal,water_goal,wellness_minutes_g
 # Pre-0003 databases lack wellness_minutes_goal; used to degrade that field alone.
 _GOAL_COLUMNS_LEGACY = "protein_goal,carb_goal,fiber_goal,water_goal"
 _HEALTH_GOAL_COLUMNS = (
-    "glp1_support,weight_mgmt,nutrition_diet,muscle_preserve,exercise_move,sleep_recovery"
+    "glp1_support,weight_mgmt,nutrition_diet,muscle_preserve,exercise_move,"
+    "sleep_recovery,weight_maintain"
 )
 _PLAN_COLUMNS = "name,current_dose_mg,cadence_days,dose_frequency,reminder_description,start_date"
 

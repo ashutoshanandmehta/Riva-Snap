@@ -425,7 +425,7 @@ def dashboard(authorization: str | None = Header(default=None)) -> JSONResponse:
 def update_health_goals(
     request: HealthGoalsUpdateRequest, authorization: str | None = Header(default=None)
 ) -> HealthGoalsUpdateResult:
-    """Onboarding: which of the six program goals the user picked."""
+    """Onboarding: which of the program goals the user picked."""
     user_id = _require_user(authorization)
     fields = request.model_dump(exclude_unset=True)
     goals = backend.update_health_goals(settings(), user_id, fields)

@@ -349,6 +349,8 @@ class HealthGoals(BaseModel):
     muscle_preserve: bool
     exercise_move: bool
     sleep_recovery: bool
+    # Optional so rows from a pre-0006 database still validate.
+    weight_maintain: bool = False
 
 
 class MedicationPlan(BaseModel):
@@ -405,6 +407,7 @@ class HealthGoalsUpdateRequest(BaseModel):
     muscle_preserve: bool | None = None
     exercise_move: bool | None = None
     sleep_recovery: bool | None = None
+    weight_maintain: bool | None = None
 
 
 class HealthGoalsUpdateResult(BaseModel):
