@@ -1,0 +1,618 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1F6D5B">
+<title>Riva Chat — tester</title>
+<style>
+  :root {
+    --brand: #1F6D5B; --brand-deep: #235C4F; --brand-soft: #D8EAE2;
+    --brand-wash: #EDF5F1; --bg: #F1F7F3; --surface: #FFFFFF;
+    --text: #101614; --text-2: #66716C; --text-3: #93A09A;
+    --danger: #C24A3F; --radius: 20px; --outline: transparent;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --brand: #4BB596; --brand-deep: #2F8371; --brand-soft: #22322D;
+      --brand-wash: #1A2622; --bg: #0C110F; --surface: #171D1A;
+      --text: #F2F5F3; --text-2: #9BA6A0; --text-3: #6E7A74;
+      --outline: rgba(255,255,255,.08);
+    }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font: 16px/1.45 -apple-system, "SF Pro Text", Roboto, system-ui, sans-serif;
+    background: var(--bg); color: var(--text);
+    display: flex; flex-direction: column; height: 100dvh;
+    max-width: 560px; margin: 0 auto;
+    padding: max(12px, env(safe-area-inset-top)) 14px 0;
+  }
+
+  header { display: flex; align-items: center; gap: 10px; padding-bottom: 12px; }
+  .logo { width: 32px; height: 32px; border-radius: 50%; flex: none;
+    background: linear-gradient(135deg, var(--brand), var(--brand-deep));
+    display: grid; place-items: center; color: #fff; font-size: 15px; }
+  header h1 { font-size: 18px; }
+  .icon-btn { margin-left: auto; border: 1px solid var(--brand-soft); background: var(--surface);
+    color: var(--text-2); border-radius: 999px; padding: 7px 13px; font-size: 12.5px;
+    font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .icon-btn + .icon-btn { margin-left: 0; }
+  .icon-btn:active { opacity: .8; }
+
+  .meta { color: var(--text-3); font-size: 11.5px; text-align: center; padding-bottom: 8px; }
+  .meta b { color: var(--text-2); font-weight: 600; }
+
+  /* Slide-over panels: threads and the seeder. */
+  .panel { display: none; background: var(--surface); border: 1px solid var(--outline);
+    border-radius: var(--radius); box-shadow: 0 6px 14px rgba(0,0,0,.06);
+    padding: 14px; margin-bottom: 12px; max-height: 46vh; overflow-y: auto; }
+  .panel.open { display: block; }
+  .panel h2 { font-size: 11px; font-weight: 600; letter-spacing: .8px;
+    text-transform: uppercase; color: var(--text-2); margin-bottom: 10px; }
+
+  .thread { display: flex; align-items: center; gap: 8px; padding: 9px 10px;
+    border-radius: 12px; cursor: pointer; }
+  .thread:hover { background: var(--brand-wash); }
+  .thread.active { background: var(--brand-wash); }
+  .thread-title { flex: 1; font-size: 14px; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .thread-count { font-size: 11px; color: var(--text-3); }
+  .thread-del { border: 0; background: none; color: var(--text-3);
+    font-size: 15px; cursor: pointer; padding: 0 4px; }
+  .thread-del:hover { color: var(--danger); }
+  .empty { color: var(--text-3); font-size: 13px; padding: 6px 2px; }
+
+  .seed-row { display: grid; grid-template-columns: 1fr auto; gap: 8px; margin-bottom: 9px; }
+  .seed-row.trio { grid-template-columns: 1fr 1fr auto; }
+  select, input[type=number], input[type=text] {
+    width: 100%; padding: 9px 10px; font-size: 13.5px; font-family: inherit;
+    border: 1px solid var(--brand-soft); border-radius: 11px;
+    background: var(--bg); color: var(--text); }
+  .btn-soft { border: 0; border-radius: 11px; padding: 9px 14px; font-size: 13px;
+    font-weight: 600; background: var(--brand-wash); color: var(--brand);
+    cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+  .btn-soft:active { opacity: .8; }
+  .btn-soft[disabled] { opacity: .45; }
+
+  /* Transcript */
+  #transcript { flex: 1; overflow-y: auto; padding: 2px 0 10px;
+    display: flex; flex-direction: column; gap: 12px; }
+  .bubble { max-width: 86%; padding: 11px 14px; border-radius: 18px; font-size: 14.5px;
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .row { display: flex; flex-direction: column; gap: 6px; }
+  .row.user { align-items: flex-end; }
+  .row.assistant { align-items: flex-start; }
+  .user .bubble { background: var(--brand-deep); color: #fff; border-bottom-right-radius: 6px; }
+  .assistant .bubble { background: var(--surface); border: 1px solid var(--outline);
+    box-shadow: 0 3px 8px rgba(0,0,0,.05); border-bottom-left-radius: 6px; }
+  .row-meta { font-size: 10.5px; color: var(--text-3); padding: 0 6px; }
+
+  .tool { max-width: 86%; background: var(--brand-wash); border-radius: 14px;
+    padding: 9px 12px; font-size: 12.5px; }
+  .tool summary { cursor: pointer; color: var(--brand); font-weight: 600;
+    list-style: none; display: flex; align-items: center; gap: 6px; }
+  .tool summary::-webkit-details-marker { display: none; }
+  .tool summary::before { content: "▸"; font-size: 10px; }
+  .tool[open] summary::before { content: "▾"; }
+  .tool pre { margin-top: 8px; font-size: 11px; line-height: 1.4; overflow-x: auto;
+    max-height: 300px; color: var(--text-2); }
+  .tool .facts { margin-top: 7px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .fact { background: var(--surface); border-radius: 999px; padding: 4px 10px;
+    font-size: 11.5px; color: var(--text-2); }
+  .fact b { color: var(--brand); }
+
+  .thinking { display: flex; gap: 5px; align-items: center; }
+  .thinking i { width: 6px; height: 6px; border-radius: 50%; background: var(--text-3);
+    animation: pulse 1.2s infinite; }
+  .thinking i:nth-child(2) { animation-delay: .18s; }
+  .thinking i:nth-child(3) { animation-delay: .36s; }
+  @keyframes pulse { 0%,60%,100% { opacity: .25 } 30% { opacity: 1 } }
+
+  .error-note { color: var(--danger); font-size: 13px; font-weight: 600; }
+  /* The write gate. Nothing is saved until Confirm sends the fingerprint back. */
+  .confirm { margin-top: 9px; padding: 10px; border-radius: 11px;
+             background: var(--brand-wash); border: 1px solid var(--brand-soft); }
+  .confirm p { margin: 0 0 9px; font-size: 13px; font-weight: 600; }
+  .confirm .row-actions { display: flex; gap: 8px; }
+
+  /* Composer */
+  #chips { display: flex; gap: 7px; overflow-x: auto; padding: 8px 0;
+    scrollbar-width: none; }
+  #chips::-webkit-scrollbar { display: none; }
+  .chip { flex: none; border: 1px solid var(--brand-soft); background: var(--surface);
+    color: var(--text-2); border-radius: 999px; padding: 6px 13px; font-size: 12.5px;
+    cursor: pointer; white-space: nowrap; -webkit-tap-highlight-color: transparent; }
+  .chip:active { background: var(--brand-wash); }
+
+  #composer { display: flex; gap: 9px; align-items: flex-end;
+    padding: 4px 0 calc(12px + env(safe-area-inset-bottom)); }
+  #query { flex: 1; resize: none; max-height: 120px; padding: 11px 14px; font-size: 15px;
+    font-family: inherit; line-height: 1.4; border: 1px solid var(--brand-soft);
+    border-radius: 20px; background: var(--surface); color: var(--text); }
+  #sendBtn { flex: none; width: 44px; height: 44px; border-radius: 50%; border: 0;
+    background: var(--brand-deep); color: #fff; font-size: 17px; cursor: pointer;
+    -webkit-tap-highlight-color: transparent; }
+  #sendBtn[disabled] { opacity: .4; }
+
+  .toast { position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+    background: var(--brand-deep); color: #fff; padding: 10px 18px; border-radius: 999px;
+    font-size: 13px; box-shadow: 0 8px 18px rgba(0,0,0,.25); opacity: 0;
+    transition: opacity .25s; pointer-events: none; max-width: 90%; text-align: center; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">≋</div>
+  <h1>Riva Chat</h1>
+  <button class="icon-btn" id="threadsBtn">Threads</button>
+  <button class="icon-btn" id="seedBtn">Seed</button>
+</header>
+
+<p class="meta">Throwaway device account — <b id="who">signing in…</b></p>
+
+<div class="panel" id="threadsPanel">
+  <h2>Conversations</h2>
+  <div id="threadList"><p class="empty">Loading…</p></div>
+  <button class="btn-soft" id="newThreadBtn" style="margin-top:10px">+ New conversation</button>
+  <button class="btn-soft" id="resetAccountBtn" style="margin-top:10px">Reset test account</button>
+</div>
+
+<div class="panel" id="seedPanel">
+  <h2>Seed data for this account</h2>
+  <div class="seed-row">
+    <input type="number" id="seedPounds" placeholder="Weight (lbs)" step="0.1" value="209.5">
+    <button class="btn-soft" data-seed="weight">Log</button>
+  </div>
+  <div class="seed-row trio">
+    <select id="seedEffect"></select>
+    <select id="seedSeverity"></select>
+    <button class="btn-soft" data-seed="side-effect">Log</button>
+  </div>
+  <div class="seed-row trio">
+    <select id="seedQuestion"></select>
+    <select id="seedOption"></select>
+    <button class="btn-soft" data-seed="checkin">Log</button>
+  </div>
+  <p class="empty">Side effects and check-ins are always stamped today — the API takes no date.</p>
+</div>
+
+<div id="transcript"></div>
+
+<div id="chips"></div>
+
+<form id="composer">
+  <textarea id="query" rows="1" placeholder="Ask about your logs, or type /" autocomplete="off"></textarea>
+  <button type="submit" id="sendBtn" title="Send">↑</button>
+</form>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const SESSION_KEY = "riva.chat.tester.session";
+
+let session = null;      // { device_id, access_token, user_id, email }
+let threadId = null;
+let busy = false;
+
+// --- session ------------------------------------------------------------------
+// The tester provisions its own throwaway account, the same way the iOS app does.
+// Chat is authenticated, so unlike index.html this page cannot run anonymously.
+
+function newDeviceId() {
+  return "webchat-" + Math.random().toString(36).slice(2, 12);
+}
+
+async function signIn(deviceId) {
+  const response = await fetch("/v1/device/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ device_id: deviceId }),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.detail || response.statusText);
+  session = { device_id: deviceId, ...payload };
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  $("who").textContent = deviceId;
+  return session;
+}
+
+async function ensureSession() {
+  const stored = localStorage.getItem(SESSION_KEY);
+  if (stored) {
+    try {
+      session = JSON.parse(stored);
+      $("who").textContent = session.device_id;
+      return session;
+    } catch { /* fall through to a fresh sign-in */ }
+  }
+  return signIn(newDeviceId());
+}
+
+// One retry on 401: a device session expires, and re-minting with the same
+// device_id returns the same account, so the transcript survives.
+async function api(path, options = {}, retry = true) {
+  const headers = { ...(options.headers || {}), Authorization: "Bearer " + session.access_token };
+  if (options.body) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, { ...options, headers });
+  if (response.status === 401 && retry) {
+    await signIn(session.device_id);
+    return api(path, options, false);
+  }
+  if (response.status === 204) return null;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(payload.detail || response.statusText);
+  return payload;
+}
+
+// --- rendering ----------------------------------------------------------------
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, c =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+function toast(message) {
+  const element = $("toast");
+  element.textContent = message;
+  element.classList.add("show");
+  setTimeout(() => element.classList.remove("show"), 2200);
+}
+
+// A few headline numbers per tool so the card is readable without expanding it.
+// Unknown shapes fall back to the raw JSON, so a new tool degrades rather than breaks.
+function toolFacts(call) {
+  const data = call.data || {};
+  const facts = [];
+  const summary = (data.summary && data.summary.effects) || null;
+  if (summary) {
+    for (const [effect, stats] of Object.entries(summary)) {
+      const arrow = stats.change < 0 ? "improving" : stats.change > 0 ? "worsening" : "flat";
+      facts.push(`${effect}: ${stats.first} → ${stats.latest} (${arrow})`);
+    }
+  }
+  if (data.scale) facts.push(data.scale);
+  if (Array.isArray(data.entries)) facts.push(`${data.entries.length} entries`);
+  if (Array.isArray(data.questions)) facts.push(`${data.questions.length} questions`);
+  if (data.latest_weight_lbs != null) facts.push(`latest ${data.latest_weight_lbs} lbs`);
+  return facts;
+}
+
+function toolNode(call) {
+  const node = document.createElement("details");
+  node.className = "tool";
+  const facts = toolFacts(call).map(f => `<span class="fact">${escapeHtml(f)}</span>`).join("");
+  node.innerHTML =
+    `<summary>${escapeHtml(call.tool)}</summary>` +
+    (facts ? `<div class="facts">${facts}</div>` : "") +
+    `<pre>${escapeHtml(JSON.stringify(call.data, null, 2))}</pre>`;
+  return node;
+}
+
+// A previewed write. The server saved nothing and will not until this exact
+// fingerprint comes back on a request — the model cannot produce it, so the
+// button is the only path to the write, and doing nothing is a refusal.
+function confirmNode(call) {
+  const node = document.createElement("div");
+  node.className = "confirm";
+  node.innerHTML =
+    `<p>${escapeHtml(call.data.will_write)}</p>` +
+    `<div class="row-actions">` +
+    `<button class="btn-soft" data-confirm>Confirm</button>` +
+    `<button class="btn-soft" data-cancel>Not now</button>` +
+    `</div>`;
+
+  const settle = (note) => {
+    node.innerHTML = `<p>${escapeHtml(note)}</p>`;
+  };
+  node.querySelector("[data-confirm]").addEventListener("click", () => {
+    settle("Confirmed.");
+    send("yes", call.data.fingerprint);
+  });
+  node.querySelector("[data-cancel]").addEventListener("click", () => {
+    settle("Not saved.");
+  });
+  return node;
+}
+
+function addMessage({ role, content, tool_calls = [], model, latency_ms }) {
+  const row = document.createElement("div");
+  row.className = "row " + role;
+
+  if (content) {
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = content;
+    row.appendChild(bubble);
+  }
+  for (const call of tool_calls) {
+    row.appendChild(toolNode(call));
+    if (call.data && call.data.status === "needs_confirmation") {
+      row.appendChild(confirmNode(call));
+    }
+  }
+
+  const bits = [];
+  if (model) bits.push(model);
+  if (latency_ms != null) bits.push(`${(latency_ms / 1000).toFixed(1)}s`);
+  if (bits.length) {
+    const meta = document.createElement("div");
+    meta.className = "row-meta";
+    meta.textContent = bits.join(" · ");
+    row.appendChild(meta);
+  }
+
+  $("transcript").appendChild(row);
+  row.scrollIntoView({ block: "end" });
+  return row;
+}
+
+// No streaming on the backend, so a free-text turn blocks for ~10s. The elapsed
+// counter makes that wait legible instead of looking hung.
+function addThinking() {
+  const row = document.createElement("div");
+  row.className = "row assistant";
+  row.innerHTML = `<div class="bubble"><span class="thinking"><i></i><i></i><i></i></span>
+    <span class="row-meta" id="elapsed"></span></div>`;
+  $("transcript").appendChild(row);
+  row.scrollIntoView({ block: "end" });
+  const started = performance.now();
+  const timer = setInterval(() => {
+    const seconds = (performance.now() - started) / 1000;
+    const label = row.querySelector("#elapsed");
+    if (label) label.textContent = ` ${seconds.toFixed(0)}s`;
+  }, 250);
+  return () => { clearInterval(timer); row.remove(); };
+}
+
+// --- threads ------------------------------------------------------------------
+
+async function loadThreads() {
+  const list = $("threadList");
+  try {
+    const { threads } = await api("/v1/chat/threads");
+    if (!threads.length) {
+      list.innerHTML = `<p class="empty">No conversations yet.</p>`;
+      return;
+    }
+    list.innerHTML = "";
+    for (const thread of threads) {
+      const row = document.createElement("div");
+      row.className = "thread" + (thread.id === threadId ? " active" : "");
+      row.innerHTML =
+        `<span class="thread-title">${escapeHtml(thread.title || "Untitled")}</span>` +
+        `<span class="thread-count">${thread.message_count}</span>` +
+        `<button class="thread-del" title="Delete">×</button>`;
+      row.querySelector(".thread-title").onclick = () => openThread(thread.id);
+      row.querySelector(".thread-del").onclick = async event => {
+        event.stopPropagation();
+        await api(`/v1/chat/threads/${thread.id}`, { method: "DELETE" });
+        if (thread.id === threadId) { threadId = null; $("transcript").innerHTML = ""; }
+        toast("Conversation deleted");
+        loadThreads();
+      };
+      list.appendChild(row);
+    }
+  } catch (error) {
+    list.innerHTML = `<p class="error-note">${escapeHtml(error.message)}</p>`;
+  }
+}
+
+async function openThread(id) {
+  try {
+    const detail = await api(`/v1/chat/threads/${id}`);
+    threadId = detail.thread_id;
+    $("transcript").innerHTML = "";
+    for (const message of detail.messages) addMessage(message);
+    $("threadsPanel").classList.remove("open");
+    loadThreads();
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+// --- sending ------------------------------------------------------------------
+
+// `assent` is the fingerprint from a previewed write, sent only when the user
+// clicks Confirm. It rides on the request rather than the conversation so the
+// model has no way to fabricate agreement — see backend/app/chat/confirm.py.
+async function send(text, assent) {
+  if (busy || !text.trim()) return;
+  busy = true;
+  $("sendBtn").disabled = true;
+  addMessage({ role: "user", content: text });
+
+  const stopThinking = addThinking();
+  try {
+    const body = { query: text };
+    if (threadId) body.thread_id = threadId;
+    if (assent) body.confirm = assent;
+    const reply = await api("/v1/chat", { method: "POST", body: JSON.stringify(body) });
+    stopThinking();
+    threadId = reply.thread_id;
+    addMessage({
+      role: "assistant",
+      content: reply.message || "",
+      tool_calls: reply.tool_calls,
+      model: reply.model || reply.kind,
+      latency_ms: reply.latency_ms,
+    });
+    loadThreads();
+  } catch (error) {
+    stopThinking();
+    const row = document.createElement("div");
+    row.className = "row assistant";
+    row.innerHTML = `<div class="bubble"><span class="error-note">${escapeHtml(error.message)}</span></div>`;
+    $("transcript").appendChild(row);
+    row.scrollIntoView({ block: "end" });
+  } finally {
+    busy = false;
+    $("sendBtn").disabled = false;
+  }
+}
+
+// --- command chips ------------------------------------------------------------
+// Rendered from GET /v1/chat/commands so the buttons cannot drift from the registry.
+
+async function loadCommands() {
+  try {
+    const { commands } = await api("/v1/chat/commands");
+    const chips = $("chips");
+    chips.innerHTML = "";
+    for (const entry of commands) {
+      const slug = entry.commands[0];
+      const chip = document.createElement("button");
+      chip.className = "chip";
+      chip.type = "button";
+      chip.textContent = slug;
+      chip.title = entry.description;
+      // A write command needs arguments and a confirmation, so a one-click chip
+      // would only ever 400. Drop it in the composer for the tester to finish.
+      chip.onclick = entry.writes
+        ? () => { $("query").value = `${slug} `; $("query").focus(); }
+        : () => send(slug);
+      chips.appendChild(chip);
+    }
+    for (const question of ["Has my nausea been getting better or worse?", "How is my weight trending?"]) {
+      const chip = document.createElement("button");
+      chip.className = "chip";
+      chip.type = "button";
+      chip.textContent = question;
+      chip.onclick = () => send(question);
+      chips.appendChild(chip);
+    }
+  } catch { /* chips are a convenience; the composer still works without them */ }
+}
+
+// --- seeding ------------------------------------------------------------------
+// Chat over an empty account has nothing to say, so the tester can create the
+// same rows the iOS logging screens would.
+
+const SIDE_EFFECTS = ["nausea", "headache", "fatigue", "constipation", "diarrhea",
+                      "dizziness", "bloating", "heartburn", "food_noise"];
+// checkin_questions/options are seeded server-side; fetched below so the codes
+// here cannot drift from the catalogue.
+let checkinCatalogue = [];
+
+function fillSelect(element, options) {
+  element.innerHTML = options
+    .map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join("");
+}
+
+async function loadCheckinCatalogue() {
+  if (checkinCatalogue.length) return;
+  try {
+    // No plain REST route exposes the check-in catalogue, so read it through the
+    // command path — then drop the scratch thread, because opening the seeder
+    // should not leave a conversation behind.
+    const reply = await api("/v1/chat", {
+      method: "POST",
+      body: JSON.stringify({ query: "/checkin_questions" }),
+    });
+    api(`/v1/chat/threads/${reply.thread_id}`, { method: "DELETE" }).catch(() => {});
+    checkinCatalogue = (reply.tool_calls[0]?.data?.questions) || [];
+    fillSelect($("seedQuestion"), checkinCatalogue.map(q => ({ value: q.id, label: q.title || q.id })));
+    syncOptions();
+  } catch {
+    $("seedQuestion").innerHTML = `<option>unavailable</option>`;
+  }
+}
+
+function syncOptions() {
+  const question = checkinCatalogue.find(q => q.id === $("seedQuestion").value);
+  fillSelect($("seedOption"),
+    (question?.options || []).map(o => ({ value: o.code, label: `${o.label} (${o.value})` })));
+}
+
+async function seed(kind) {
+  const routes = {
+    "weight": () => ["/v1/log/weight", { pounds: parseFloat($("seedPounds").value) }],
+    "side-effect": () => ["/v1/log/side-effects", {
+      effects: [{ effect: $("seedEffect").value, severity: parseInt($("seedSeverity").value, 10) }],
+      note: "logged from the web tester",
+    }],
+    "checkin": () => ["/v1/log/checkin", {
+      question_id: $("seedQuestion").value, option_code: $("seedOption").value,
+    }],
+  };
+  const [path, body] = routes[kind]();
+  try {
+    await api(path, { method: "POST", body: JSON.stringify(body) });
+    toast(`Logged ${kind}`);
+  } catch (error) {
+    toast(error.message);
+  }
+}
+
+// --- wiring -------------------------------------------------------------------
+
+$("threadsBtn").onclick = () => {
+  $("seedPanel").classList.remove("open");
+  $("threadsPanel").classList.toggle("open");
+};
+$("seedBtn").onclick = () => {
+  $("threadsPanel").classList.remove("open");
+  $("seedPanel").classList.toggle("open");
+  // Lazily, so a session that never seeds never pays for the catalogue call.
+  if ($("seedPanel").classList.contains("open")) loadCheckinCatalogue();
+};
+$("newThreadBtn").onclick = () => {
+  threadId = null;
+  $("transcript").innerHTML = "";
+  $("threadsPanel").classList.remove("open");
+  loadThreads();
+};
+$("resetAccountBtn").onclick = async () => {
+  if (!confirm("Delete this test account and all its data, then start a fresh one?")) return;
+  try { await api("/v1/account", { method: "DELETE" }); } catch { /* already gone */ }
+  localStorage.removeItem(SESSION_KEY);
+  threadId = null;
+  $("transcript").innerHTML = "";
+  await signIn(newDeviceId());
+  toast("New test account");
+  await loadThreads();
+};
+
+for (const button of document.querySelectorAll("[data-seed]")) {
+  button.onclick = () => seed(button.dataset.seed);
+}
+$("seedQuestion").onchange = syncOptions;
+
+$("composer").onsubmit = event => {
+  event.preventDefault();
+  const text = $("query").value;
+  $("query").value = "";
+  $("query").style.height = "auto";
+  send(text);
+};
+$("query").oninput = event => {
+  event.target.style.height = "auto";
+  event.target.style.height = Math.min(event.target.scrollHeight, 120) + "px";
+};
+$("query").onkeydown = event => {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
+    $("composer").requestSubmit();
+  }
+};
+
+(async function start() {
+  fillSelect($("seedEffect"), SIDE_EFFECTS.map(e => ({ value: e, label: e.replace("_", " ") })));
+  fillSelect($("seedSeverity"),
+    [1, 2, 3, 4, 5].map(v => ({ value: v, label: `severity ${v}` })));
+  $("seedSeverity").value = "5";
+  try {
+    await ensureSession();
+  } catch (error) {
+    $("who").textContent = "sign-in failed";
+    toast(error.message);
+    return;
+  }
+  await Promise.all([loadCommands(), loadThreads()]);
+})();
+</script>
+</body>
+</html>

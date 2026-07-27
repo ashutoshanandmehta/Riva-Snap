@@ -781,6 +781,12 @@ if volumetric_router is not None:
 else:
     logger.warning("Volumetric deps (numpy/opencv) not installed; /v1/scan/volumetric disabled.")
 
+# AI companion chat. Imported here rather than at the top of the module because
+# app.chat.routes reuses _require_user from this module.
+from app.chat.routes import router as chat_router  # noqa: E402
+
+app.include_router(chat_router)
+
 # Mobile web tester — served by the API itself so the phone needs only the
 # Mac's LAN address (same origin, no base-URL config).
 # Anything registered after this mount 404s — the "/" mount is a catch-all.

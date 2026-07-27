@@ -9,7 +9,8 @@ food_entries plus the nutrition_days daily aggregate in one transaction.
 import hashlib
 import hmac
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
 from fastapi import HTTPException
@@ -296,6 +297,9 @@ def delete_todo(config: Settings, user_id: str, todo_id: str) -> None:
 
 _LOAD_DETAIL = "Could not load your data. Try again."
 _SAVE_DETAIL = "Could not save your changes. Try again."
+
+# Matches the `profiles.timezone` column default and the `log_*` functions.
+_DEFAULT_TZ = "America/New_York"
 _MIGRATION_DETAIL = (
     "The database is missing tables from a migration. Run the unapplied files in "
     "backend/supabase/migrations/ in the Supabase SQL Editor."
@@ -515,18 +519,39 @@ def upsert_plan(config: Settings, user_id: str, fields: dict) -> dict:
     return rows[0]
 
 
-def list_weights(config: Settings, user_id: str, limit: int) -> list:
-    return _select(
-        config,
-        "weights",
-        {
-            "user_id": f"eq.{user_id}",
-            "deleted_at": "is.null",
-            "select": "id,pounds,dose_mg,measured_at",
-            "order": "measured_at.desc",
-            "limit": str(limit),
-        },
-    )
+def _timestamp_day_bounds(since: str | None, until: str | None) -> list[str]:
+    """PostgREST filters for an inclusive ISO **date** range over a timestamptz
+    column. `until` becomes an exclusive `< next day` so the whole end day is
+    covered whatever time the row was stamped. Returned as a list because
+    PostgREST takes two bounds as a repeated query parameter."""
+    bounds: list[str] = []
+    if since:
+        bounds.append(f"gte.{since}")
+    if until:
+        bounds.append(f"lt.{(date.fromisoformat(until) + timedelta(days=1)).isoformat()}")
+    return bounds
+
+
+def list_weights(
+    config: Settings,
+    user_id: str,
+    limit: int,
+    since: str | None = None,
+    until: str | None = None,
+) -> list:
+    """Weight history, newest first. `since`/`until` are inclusive ISO dates;
+    omitting both keeps the original limit-only behaviour."""
+    params: dict = {
+        "user_id": f"eq.{user_id}",
+        "deleted_at": "is.null",
+        "select": "id,pounds,dose_mg,measured_at",
+        "order": "measured_at.desc",
+        "limit": str(limit),
+    }
+    bounds = _timestamp_day_bounds(since, until)
+    if bounds:
+        params["measured_at"] = bounds
+    return _select(config, "weights", params)
 
 
 def list_food_entries(config: Settings, user_id: str, limit: int | None = None) -> list[dict]:
@@ -541,18 +566,26 @@ def list_food_entries(config: Settings, user_id: str, limit: int | None = None) 
     return _select(config, "food_entries", params)
 
 
-def list_shots(config: Settings, user_id: str, limit: int) -> list:
-    return _select(
-        config,
-        "shots",
-        {
-            "user_id": f"eq.{user_id}",
-            "deleted_at": "is.null",
-            "select": "id,medication_name,dose_mg,taken_at,injection_site,comfort_rating",
-            "order": "taken_at.desc",
-            "limit": str(limit),
-        },
-    )
+def list_shots(
+    config: Settings,
+    user_id: str,
+    limit: int,
+    since: str | None = None,
+    until: str | None = None,
+) -> list:
+    """Shot history, newest first. `since`/`until` are inclusive ISO dates;
+    omitting both keeps the original limit-only behaviour."""
+    params: dict = {
+        "user_id": f"eq.{user_id}",
+        "deleted_at": "is.null",
+        "select": "id,medication_name,dose_mg,taken_at,injection_site,comfort_rating",
+        "order": "taken_at.desc",
+        "limit": str(limit),
+    }
+    bounds = _timestamp_day_bounds(since, until)
+    if bounds:
+        params["taken_at"] = bounds
+    return _select(config, "shots", params)
 
 
 def list_wellness_sessions(config: Settings, user_id: str, days: int) -> list:
@@ -598,16 +631,27 @@ def cache_suggestions(config: Settings, user_id: str, day: str, payload: dict) -
     )
 
 
-def list_side_effects(config: Settings, user_id: str, days: int) -> list:
-    """Daily logs for the window, each with its effects, newest first."""
-    since = (date.today() - timedelta(days=days)).isoformat()
+def list_side_effects(
+    config: Settings,
+    user_id: str,
+    days: int,
+    since: str | None = None,
+    until: str | None = None,
+) -> list:
+    """Daily logs for the window, each with its effects, newest first.
+
+    `since`/`until` are inclusive ISO dates that override the rolling `days`
+    window; `log_date` is a date column, so both bounds apply directly."""
+    bounds = [f"gte.{since or (date.today() - timedelta(days=days)).isoformat()}"]
+    if until:
+        bounds.append(f"lte.{until}")
     logs = _select(
         config,
         "side_effect_logs",
         {
             "user_id": f"eq.{user_id}",
             "deleted_at": "is.null",
-            "log_date": f"gte.{since}",
+            "log_date": bounds,
             "select": "id,log_date,note",
             "order": "log_date.desc",
         },
@@ -684,6 +728,58 @@ def list_sleep_checkins(config: Settings, user_id: str, since: str) -> list[dict
     return sleep_checkins
 
 
+def profile_today(profile: dict) -> date:
+    """The user's local calendar day, matching what the `log_*` functions
+    compute in SQL. An unknown timezone falls back to the server's day rather
+    than failing the whole dashboard."""
+    try:
+        return datetime.now(ZoneInfo(profile.get("timezone") or _DEFAULT_TZ)).date()
+    except (ZoneInfoNotFoundError, ValueError):
+        logger.warning("unknown profile timezone %r; using server day", profile.get("timezone"))
+        return date.today()
+
+
+def nutrition_streak(logged_days: set[str], today: date) -> int:
+    """Consecutive days with nutrition logged, ending today or yesterday.
+
+    Mirrors `wellness_streak` + `wellness_summary` (0003): an unbroken streak
+    survives until the end of the current day, so a day with nothing logged
+    *yet* does not zero it.
+    """
+    anchor = today if today.isoformat() in logged_days else today - timedelta(days=1)
+    streak = 0
+    while (anchor - timedelta(days=streak)).isoformat() in logged_days:
+        streak += 1
+    return streak
+
+
+def _logged_nutrition_days(config: Settings, user_id: str) -> set[str]:
+    """Every day this user has real nutrition activity. Capped at 400 rows —
+    past thirteen months the number is decorative, and the cap keeps one
+    dashboard call from pulling an unbounded history.
+
+    A `nutrition_days` row exists as soon as anything touches the day, so an
+    all-zero row is not a logged day. The filter runs here rather than as a
+    PostgREST `or=` so the query stays one this module already knows works.
+    """
+    rows = _select(
+        config,
+        "nutrition_days",
+        {
+            "user_id": f"eq.{user_id}",
+            "deleted_at": "is.null",
+            "select": "day,calories,water_ounces",
+            "order": "day.desc",
+            "limit": "400",
+        },
+    )
+    return {
+        row["day"]
+        for row in rows
+        if (row.get("calories") or 0) > 0 or (row.get("water_ounces") or 0) > 0
+    }
+
+
 def get_dashboard(config: Settings, user_id: str) -> dict:
     """Everything the app's dashboards need in one round trip: profile,
     goals, plan, this week's nutrition days, weight and shot history,
@@ -729,6 +825,17 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
     except HTTPException:
         logger.warning("wellness summary unavailable; dashboard degrades without it")
 
+    # Home's streak chip. Computed here rather than in SQL like wellness_streak
+    # (0003) so it needs no migration; the rules are deliberately the same.
+    # Fail soft: a streak is a garnish, never a reason to fail the dashboard.
+    try:
+        streak_days = nutrition_streak(
+            _logged_nutrition_days(config, user_id), profile_today(me["profile"])
+        )
+    except HTTPException:
+        logger.warning("nutrition streak unavailable; dashboard degrades without it")
+        streak_days = 0
+
     # To-dos are deliberately NOT here: they are read and written through
     # /v1/todos, so carrying them would cost an extra RPC per dashboard call
     # for a payload no client decodes.
@@ -743,6 +850,7 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
         "side_effects_today": effects_today,
         "sleep_checkins": sleep_checkins,
         "wellness": wellness,
+        "streak_days": streak_days,
     }
 
 

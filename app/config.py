@@ -23,6 +23,22 @@ class Settings(BaseSettings):
     # Wellness suggestions (app/suggestions.py). Empty = the Sonnet default.
     riva_suggest_model: str = ""
 
+    # AI companion chat (app/chat/). Empty model = the Sonnet default.
+    riva_chat_model: str = ""
+    # Thinking depth / token spend for the chat loop. "medium" keeps an
+    # interactive reply responsive; raise to "high" for harder reasoning.
+    riva_chat_effort: str = "medium"
+    # Versioned system prompt (app/chat/prompts/companion_<version>.md),
+    # echoed in every conversational response. v2 adds the nutrition, wellness,
+    # goals and to-do tools plus the write-confirmation rules; v1 predates the
+    # write tools and must not be run with them enabled.
+    riva_chat_prompt_version: str = "v2"
+    # Tool-calling loop cap. Exceeded means answer with what the tools returned
+    # so far rather than looping on the user's (and our) budget.
+    riva_chat_max_tool_iterations: int = 4
+    # Thread turns replayed into the prompt; older turns drop off.
+    riva_chat_history_turns: int = 10
+
     prompt_version: str = "v1"
 
     # Volumetric segmentation (app/volumetric/segmenter.py). Empty token = the
