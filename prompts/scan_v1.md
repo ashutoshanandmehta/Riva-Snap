@@ -21,7 +21,9 @@ Rules:
    dinner plate is about 10 to 11 inches across and a bowl holds roughly 1.5 to
    2 cups.
 4. Estimate portions using US serving conventions (oz, cups, pieces) AND in
-   grams (`portion_grams`; use ml for liquids, `is_liquid: true`). Assume
+   grams (`portion_grams`; use ml for liquids, `is_liquid: true`). Write
+   `portion_desc` the way a person would say it out loud, e.g. "about a cup"
+   or "two pieces". No dashes, no parentheses. Assume
    US-style preparation and typical US home/restaurant portion sizes — a US
    restaurant entree portion is usually 1.5-2x a nutrition-label serving.
 5. Estimate per-item nutrition for THAT portion: calories, protein_g, carb_g,

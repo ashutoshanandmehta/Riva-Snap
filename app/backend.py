@@ -786,8 +786,14 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
     today's side effects, the week's sleep check-ins, and the wellness
     summary."""
     me = get_me(config, user_id)
-    today = date.today().isoformat()
-    week_ago = (date.today() - timedelta(days=7)).isoformat()
+    # "Today" is the user's local day — the same day the `log_*` SQL functions
+    # stamp their rows with. Reading the server's own day drops every log made
+    # while the two calendars disagree (an evening in the Americas, an early
+    # morning east of UTC): the scan reports the calories, the dashboard then
+    # shows zero.
+    local_today = profile_today(me["profile"])
+    today = local_today.isoformat()
+    week_ago = (local_today - timedelta(days=7)).isoformat()
 
     week_nutrition = _select(
         config,
@@ -829,9 +835,7 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
     # (0003) so it needs no migration; the rules are deliberately the same.
     # Fail soft: a streak is a garnish, never a reason to fail the dashboard.
     try:
-        streak_days = nutrition_streak(
-            _logged_nutrition_days(config, user_id), profile_today(me["profile"])
-        )
+        streak_days = nutrition_streak(_logged_nutrition_days(config, user_id), local_today)
     except HTTPException:
         logger.warning("nutrition streak unavailable; dashboard degrades without it")
         streak_days = 0
