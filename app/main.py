@@ -28,7 +28,7 @@ try:
 except ImportError:  # numpy/opencv absent (lean prod image)
     volumetric_router = None
 
-from . import backend, grounding, plausibility, preprocess, suggestions, vision
+from . import backend, food_search, grounding, plausibility, preprocess, suggestions, vision
 from .config import settings
 from .schemas import (
     GENDERS,
@@ -44,6 +44,8 @@ from .schemas import (
     DeviceSession,
     DeviceSessionRequest,
     ExtendedNutrients,
+    FoodSearchRequest,
+    FoodSuggestion,
     GoalsUpdateRequest,
     GoalsUpdateResult,
     HealthGoalsUpdateRequest,
@@ -287,6 +289,28 @@ def wellness_suggestions(
         logger.exception("wellness suggestions failed; serving the fallback")
         fallback = suggestions.fallback(context)
         return WellnessSuggestionsResult(suggestions=fallback["suggestions"], source="fallback")
+
+
+@app.post("/v1/food-search", response_model=list[FoodSuggestion])
+def replacement_search(
+    request: FoodSearchRequest, authorization: str | None = Header(default=None)
+) -> list[FoodSuggestion]:
+    """Replacement candidates for one mis-detected scan item.
+
+    USDA prices; Claude only names alternatives and decomposes what USDA does
+    not know into a recipe whose ingredients it does. A typed search returns at
+    most one result — the client applies it directly — and an empty search
+    returns a short list to pick from.
+    """
+    _require_user(authorization)
+    query = request.search.strip()
+    if not query and not request.original_item.strip():
+        raise HTTPException(
+            status_code=400, detail="Say which food to replace, or search for one."
+        )
+    if len(query) > 120:
+        raise HTTPException(status_code=400, detail="Keep the search under 120 characters.")
+    return [FoodSuggestion(**entry) for entry in food_search.search(settings(), request)]
 
 
 def _validated_todo(request: TodoUpsertRequest) -> dict:

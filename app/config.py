@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     riva_scan_debug: bool = True
     # Wellness suggestions (app/suggestions.py). Empty = the Sonnet default.
     riva_suggest_model: str = ""
+    # Food search / recipe decomposition (app/food_search.py). Naming and
+    # composition are knowledge tasks. Empty = the Sonnet default.
+    riva_food_search_model: str = ""
 
     # AI companion chat (app/chat/). Empty model = the Sonnet default.
     riva_chat_model: str = ""

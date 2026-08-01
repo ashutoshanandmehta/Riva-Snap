@@ -461,3 +461,42 @@ class SideEffectListResult(BaseModel):
 
 class AccountDeleteResult(BaseModel):
     deleted: bool
+
+
+class FoodSearchRequest(BaseModel):
+    """One mis-detected scan item the user wants to swap.
+
+    An empty `search` means "suggest replacements for me"; anything else is the
+    food they typed. `original_grams` / `original_portion_desc` carry the
+    portion already on the plate, so a searched food keeps it and only the food
+    changes — both optional so an older client still works.
+    """
+
+    original_item: str = ""
+    search: str = ""
+    plate_context: str = ""
+    other_items: list[str] = []
+    original_grams: float = 0
+    original_portion_desc: str = ""
+
+
+class FoodSuggestion(BaseModel):
+    """One priced replacement candidate.
+
+    `matched` is true only when the food ITSELF hit a USDA entry. A dish USDA
+    did not know is composed from a Claude recipe whose ingredients were priced
+    against USDA — better than a bare guess, but the proportions are the
+    model's, so it stays false.
+    """
+
+    name: str
+    portion_desc: str
+    portion_grams: float
+    calories: int
+    protein_grams: int
+    carb_grams: int
+    fiber_grams: int
+    fat_g: float
+    sugar_g: float
+    sodium_mg: float
+    matched: bool
