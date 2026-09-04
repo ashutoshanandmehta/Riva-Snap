@@ -26,3 +26,8 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      # Schedule a call (Cal.com). Empty CAL_COM_API_KEY = mock mode.
+      - key: CAL_COM_API_KEY
+        sync: false
+      - key: CAL_COM_EVENT_TYPES
+        sync: false

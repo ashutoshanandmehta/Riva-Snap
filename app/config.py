@@ -62,6 +62,28 @@ class Settings(BaseSettings):
     # offline re-scoring once the calibrated carver exists.
     volumetric_capture_dir: str = ""
 
+    # Schedule a call (app/meets/). Empty key = mock mode: bookings are
+    # synthesised locally and clearly flagged, never presented as real.
+    cal_com_api_key: str = ""
+    cal_com_base_url: str = "https://api.cal.com/v2"
+    # JSON object of {role: {display_name, role_label, cal_username,
+    # event_type_slug, duration_minutes}}. NOT in strip_whitespace below —
+    # that validator strips all internal whitespace, which would corrupt a
+    # JSON string value; app/meets/cal.py parses this defensively instead and
+    # falls back to a placeholder catalogue with a logged warning, never a
+    # boot-time crash.
+    cal_com_event_types: str = ""
+    cal_com_timeout_s: float = 8.0
+    # Booking (not slots) provisions a video link server-side on Cal.com's
+    # end and has been observed live to take longer than a slots lookup — an
+    # 8s timeout there reads a real, accepted booking as a failure, which is
+    # worse than the already-handled "booking confirmed but our DB write
+    # failed" case: the caller is told to pick another time when the
+    # original one is already taken.
+    cal_com_booking_timeout_s: float = 25.0
+    cal_com_slot_days: int = 14
+    cal_com_cc_email: str = ""
+
     @field_validator(
         "anthropic_api_key",
         "fdc_api_key",
@@ -72,6 +94,9 @@ class Settings(BaseSettings):
         "sam2_endpoint_url",
         "sam2_api_key",
         "volumetric_capture_dir",
+        "cal_com_api_key",
+        "cal_com_base_url",
+        "cal_com_cc_email",
         mode="before",
     )
     @classmethod

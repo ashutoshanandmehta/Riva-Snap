@@ -305,9 +305,7 @@ def replacement_search(
     _require_user(authorization)
     query = request.search.strip()
     if not query and not request.original_item.strip():
-        raise HTTPException(
-            status_code=400, detail="Say which food to replace, or search for one."
-        )
+        raise HTTPException(status_code=400, detail="Say which food to replace, or search for one.")
     if len(query) > 120:
         raise HTTPException(status_code=400, detail="Keep the search under 120 characters.")
     return [FoodSuggestion(**entry) for entry in food_search.search(settings(), request)]
@@ -810,6 +808,12 @@ else:
 from app.chat.routes import router as chat_router  # noqa: E402
 
 app.include_router(chat_router)
+
+# Schedule a call. Imported here rather than at the top of the module because
+# app.meets.routes reuses _require_user from this module (same reason as chat).
+from app.meets.routes import router as meets_router  # noqa: E402
+
+app.include_router(meets_router)
 
 # Mobile web tester — served by the API itself so the phone needs only the
 # Mac's LAN address (same origin, no base-URL config).

@@ -893,6 +893,12 @@ def export_user(config: Settings, user_id: str) -> dict:
         # Pre-0004 DBs lack the todos table; same single-section degrade.
         todos = []
 
+    try:
+        scheduled_meets = _select(config, "scheduled_meets", {**owned, "order": "starts_at.desc"})
+    except HTTPException:
+        # Pre-0007 DBs lack the scheduled_meets table; same single-section degrade.
+        scheduled_meets = []
+
     return {
         "profile": profiles[0] if profiles else None,
         "nutrition_goals": goals[0] if goals else None,
@@ -906,7 +912,37 @@ def export_user(config: Settings, user_id: str) -> dict:
         "checkins": checkins,
         "wellness_sessions": wellness_sessions,
         "todos": todos,
+        "scheduled_meets": scheduled_meets,
     }
+
+
+def user_email(config: Settings, user_id: str) -> str | None:
+    """The auth user's email via the GoTrue admin API.
+
+    `profiles` has no email column — it lives only in auth.users/GoTrue — so
+    this is the one place that email is resolved from. Fails soft: any
+    transport error, non-2xx, or missing field logs a warning and returns
+    None rather than raising, since a booking's caller decides whether a
+    missing email should block it.
+    """
+    try:
+        response = _http.get(
+            f"{config.supabase_url}/auth/v1/admin/users/{user_id}",
+            headers=_service_headers(config),
+        )
+    except httpx.HTTPError as error:
+        logger.warning("auth service unreachable while resolving email for %s: %s", user_id, error)
+        return None
+    if not 200 <= response.status_code < 300:
+        logger.warning(
+            "email lookup failed for %s: %s %s", user_id, response.status_code, response.text[:300]
+        )
+        return None
+    email = response.json().get("email")
+    if not email:
+        logger.warning("auth user %s has no email on record", user_id)
+        return None
+    return email
 
 
 def delete_account(config: Settings, user_id: str) -> None:

@@ -182,6 +182,8 @@ in `.env` (and on Render). Apply the migrations from
    the signup provisioning trigger, and `log_scan`.
 2. `0002_logging.sql`: medication_plans, shots, weights, side effects,
    check-ins with seeded questions, and the `log_*` functions.
+3. `0007_scheduled_meets.sql`: scheduled_meets (Schedule a call bookings)
+   plus `create_scheduled_meet` and `list_scheduled_meets`.
 
 Design rules I follow throughout: server-authoritative writes (clients
 only authenticate; all writes go through SECURITY DEFINER functions
