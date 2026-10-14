@@ -7,6 +7,7 @@ validates, resolves the person and the caller's booking context, then calls
 """
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
@@ -34,6 +35,12 @@ LIST_LIMIT = 20
 _SLOTS_UNAVAILABLE = "Times aren't available right now. Try again shortly."
 _BOOKING_FAILED = "Couldn't book that time. Pick another."
 _NO_EMAIL = "Add an email to your account before booking a call."
+_BAD_EMAIL = "Enter a valid email address."
+_DEVICE_EMAIL = "Add a real email to book a call."
+# Device accounts are provisioned with an address on this domain; it can't
+# receive mail, so Cal.com rejects the booking outright.
+_DEVICE_EMAIL_DOMAIN = "@devices.riva.app"
+_EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _RECONCILE_NOTE = (
     "Your call may already be booked — we couldn't confirm it on our side. "
     "Check your email before booking another time."
@@ -68,6 +75,23 @@ def _resolve_timezone(requested: str | None, profile_timezone: str) -> str:
     except Exception:
         raise HTTPException(status_code=400, detail=f"Unknown timezone: {requested}") from None
     return requested
+
+
+def _attendee_email(requested: str | None, account_email: str | None) -> str:
+    """The address the invite goes to: the typed one, else the account's.
+
+    A malformed typed address is a 400; the synthetic device-account address
+    (typed or from the account) is a 400 with its own message rather than a
+    Cal.com failure the caller can't act on.
+    """
+    email = (requested or "").strip().lower() or (account_email or "")
+    if requested is not None and requested.strip() and not _EMAIL_PATTERN.match(email):
+        raise HTTPException(status_code=400, detail=_BAD_EMAIL)
+    if not email:
+        raise HTTPException(status_code=400, detail=_NO_EMAIL)
+    if email.endswith(_DEVICE_EMAIL_DOMAIN):
+        raise HTTPException(status_code=400, detail=_DEVICE_EMAIL)
+    return email
 
 
 def _role_label(catalogue: dict, person_role: str) -> str:
@@ -174,12 +198,11 @@ def book_meet(
         raise HTTPException(status_code=400, detail="start must be in the future.")
 
     context = store.booking_context(config, user_id)
-    if not context["email"]:
-        raise HTTPException(status_code=400, detail=_NO_EMAIL)
+    attendee_email = _attendee_email(request.email, context["email"])
 
     attendee = {
         "name": context["name"] or "Riva member",
-        "email": context["email"],
+        "email": attendee_email,
         "timezone": _resolve_timezone(request.timezone, context["timezone"]),
     }
 

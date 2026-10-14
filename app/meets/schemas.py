@@ -43,6 +43,9 @@ class BookMeetRequest(BaseModel):
     reason_note: str | None = None
     # IANA name the attendee is booking in; falls back to the profile timezone.
     timezone: str | None = None
+    # Where Cal.com sends the invite. Falls back to the account email, which for
+    # a device account is a synthetic address Cal.com refuses to mail.
+    email: str | None = None
 
 
 class ScheduledMeet(BaseModel):

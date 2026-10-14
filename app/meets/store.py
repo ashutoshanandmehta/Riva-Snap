@@ -35,6 +35,11 @@ def create_meet(config: Settings, user_id: str, row: dict) -> dict:
             "p_is_mock": row.get("is_mock", False),
         },
     )
+    # The function returns one composite row, which PostgREST sends as a JSON
+    # object — unlike the SETOF/TABLE functions elsewhere, which come back as
+    # a list. Accept both so a schema change can't silently break booking.
+    if isinstance(rows, dict):
+        return rows
     if not rows:
         raise RuntimeError("create_scheduled_meet returned no row")
     return rows[0]
