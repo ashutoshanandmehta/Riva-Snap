@@ -41,6 +41,8 @@ class BookMeetRequest(BaseModel):
     start: str
     reason_category: str
     reason_note: str | None = None
+    # IANA name the attendee is booking in; falls back to the profile timezone.
+    timezone: str | None = None
 
 
 class ScheduledMeet(BaseModel):

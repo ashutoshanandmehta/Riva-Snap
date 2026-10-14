@@ -10,7 +10,7 @@ import logging
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Query
 
 from ..config import settings
 from . import cal, store
@@ -59,6 +59,17 @@ def _person_or_400(catalogue: dict, role: str) -> dict:
     return person
 
 
+def _resolve_timezone(requested: str | None, profile_timezone: str) -> str:
+    """The IANA zone to use: an explicit request wins, then the profile's."""
+    if requested is None:
+        return profile_timezone
+    try:
+        ZoneInfo(requested)
+    except Exception:
+        raise HTTPException(status_code=400, detail=f"Unknown timezone: {requested}") from None
+    return requested
+
+
 def _role_label(catalogue: dict, person_role: str) -> str:
     person = catalogue.get(person_role)
     if person:
@@ -86,22 +97,25 @@ def _to_scheduled_meet(catalogue: dict, row: dict) -> ScheduledMeet:
 def meet_slots(
     role: str,
     days: int | None = None,
+    tz: str | None = Query(default=None, alias="timezone"),
     authorization: str | None = Header(default=None),
 ) -> MeetSlotsResponse:
-    """Open slots for one bookable person, over the next `days` days."""
+    """The next days with open slots for one bookable person, in `timezone`
+    (default: the profile's). `days` is how far ahead Cal.com is searched; at
+    most `cal_com_slot_days` days that actually have availability come back."""
     user_id = _current_user(authorization)
     config = settings()
 
     catalogue = cal.person_catalogue(config)
     person = _person_or_400(catalogue, role)
-    window = days if days is not None else config.cal_com_slot_days
+    window = days if days is not None else config.cal_com_slot_lookahead_days
     if not MIN_SLOT_DAYS <= window <= MAX_SLOT_DAYS:
         raise HTTPException(
             status_code=400, detail=f"days must be between {MIN_SLOT_DAYS} and {MAX_SLOT_DAYS}."
         )
 
     context = store.booking_context(config, user_id)
-    tz_name = context["timezone"]
+    tz_name = _resolve_timezone(tz, context["timezone"])
     try:
         local_today = datetime.now(ZoneInfo(tz_name)).date()
     except Exception:
@@ -115,7 +129,10 @@ def meet_slots(
         logger.warning("Cal.com slots unavailable for role=%s", role)
         raise HTTPException(status_code=503, detail=_SLOTS_UNAVAILABLE) from None
 
-    days_out = [MeetSlotDay(date=day, slots=raw_days[day]) for day in sorted(raw_days.keys())]
+    open_days = [day for day in sorted(raw_days.keys()) if raw_days[day]]
+    days_out = [
+        MeetSlotDay(date=day, slots=raw_days[day]) for day in open_days[: config.cal_com_slot_days]
+    ]
 
     return MeetSlotsResponse(
         role=role,
@@ -163,7 +180,7 @@ def book_meet(
     attendee = {
         "name": context["name"] or "Riva member",
         "email": context["email"],
-        "timezone": context["timezone"],
+        "timezone": _resolve_timezone(request.timezone, context["timezone"]),
     }
 
     try:

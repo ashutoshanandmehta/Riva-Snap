@@ -64,7 +64,7 @@ class Settings(BaseSettings):
 
     # Schedule a call (app/meets/). Empty key = mock mode: bookings are
     # synthesised locally and clearly flagged, never presented as real.
-    cal_com_api_key: str = ""
+    cal_com_api_key: str = "cal_live_bd3092b8338a505bf886f3a8753a8819"
     cal_com_base_url: str = "https://api.cal.com/v2"
     # JSON object of {role: {display_name, role_label, cal_username,
     # event_type_slug, duration_minutes}}. NOT in strip_whitespace below —
@@ -72,7 +72,24 @@ class Settings(BaseSettings):
     # JSON string value; app/meets/cal.py parses this defensively instead and
     # falls back to a placeholder catalogue with a logged warning, never a
     # boot-time crash.
-    cal_com_event_types: str = ""
+    cal_com_event_types: str = """
+    {
+      "clinician": {
+        "display_name": "Peptide Clinician",
+        "role_label": "Peptide Clinician",
+        "cal_username": "dikki-2bpvfr",
+        "event_type_slug": "30min",
+        "duration_minutes": 30
+      },
+      "wellness_coach": {
+        "display_name": "Peptide Coach",
+        "role_label": "Peptide Coach",
+        "cal_username": "dikki-2bpvfr",
+        "event_type_slug": "30min",
+        "duration_minutes": 30
+      }
+    }
+    """
     cal_com_timeout_s: float = 8.0
     # Booking (not slots) provisions a video link server-side on Cal.com's
     # end and has been observed live to take longer than a slots lookup — an
@@ -81,8 +98,11 @@ class Settings(BaseSettings):
     # failed" case: the caller is told to pick another time when the
     # original one is already taken.
     cal_com_booking_timeout_s: float = 25.0
-    cal_com_slot_days: int = 14
-    cal_com_cc_email: str = ""
+    # Max number of days *with open slots* the slots route returns, and how far
+    # ahead Cal.com is searched to find them.
+    cal_com_slot_days: int = 7
+    cal_com_slot_lookahead_days: int = 30
+    cal_com_cc_email: str = "dikki6067@gmail.com"
 
     @field_validator(
         "anthropic_api_key",
