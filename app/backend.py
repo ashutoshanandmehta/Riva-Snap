@@ -786,77 +786,10 @@ def get_dashboard(config: Settings, user_id: str) -> dict:
     goals, plan, this week's nutrition days, weight and shot history,
     today's side effects, the week's sleep check-ins, and the wellness
     summary."""
-    me = get_me(config, user_id)
-    # "Today" is the user's local day — the same day the `log_*` SQL functions
-    # stamp their rows with. Reading the server's own day drops every log made
-    # while the two calendars disagree (an evening in the Americas, an early
-    # morning east of UTC): the scan reports the calories, the dashboard then
-    # shows zero.
-    local_today = profile_today(me["profile"])
-    today = local_today.isoformat()
-    week_ago = (local_today - timedelta(days=7)).isoformat()
+    # Assembly is concurrent; see `dashboard_data`.
+    from . import dashboard_data  # deferred: dashboard_data imports this module
 
-    week_nutrition = _select(
-        config,
-        "nutrition_days",
-        {
-            "user_id": f"eq.{user_id}",
-            "deleted_at": "is.null",
-            "day": f"gte.{week_ago}",
-            "select": "day,calories,protein_grams,carb_grams,fiber_grams,water_ounces",
-            "order": "day.desc",
-        },
-    )
-    today_row = next((row for row in week_nutrition if row["day"] == today), None)
-
-    weights = list_weights(config, user_id, 90)
-    shots = list_shots(config, user_id, 60)
-
-    effects_today = []
-    for log in list_side_effects(config, user_id, 1):
-        if log["log_date"] == today:
-            effects_today = log["effects"]
-
-    sleep_checkins = list_sleep_checkins(config, user_id, week_ago)
-
-    # Fail soft: a pre-0003 database serves the dashboard without wellness.
-    wellness = None
-    try:
-        summary = wellness_summary(config, user_id)
-        if summary:
-            wellness = {
-                "minutes_today": summary["minutes_today"],
-                "streak_days": summary["streak_days"],
-                "goal_minutes": me["nutrition_goals"].get("wellness_minutes_goal", 45),
-            }
-    except HTTPException:
-        logger.warning("wellness summary unavailable; dashboard degrades without it")
-
-    # Home's streak chip. Computed here rather than in SQL like wellness_streak
-    # (0003) so it needs no migration; the rules are deliberately the same.
-    # Fail soft: a streak is a garnish, never a reason to fail the dashboard.
-    try:
-        streak_days = nutrition_streak(_logged_nutrition_days(config, user_id), local_today)
-    except HTTPException:
-        logger.warning("nutrition streak unavailable; dashboard degrades without it")
-        streak_days = 0
-
-    # To-dos are deliberately NOT here: they are read and written through
-    # /v1/todos, so carrying them would cost an extra RPC per dashboard call
-    # for a payload no client decodes.
-    return {
-        "profile": me["profile"],
-        "nutrition_goals": me["nutrition_goals"],
-        "plan": me["plan"],
-        "today": today_row,
-        "week_nutrition": week_nutrition,
-        "weights": weights,
-        "shots": shots,
-        "side_effects_today": effects_today,
-        "sleep_checkins": sleep_checkins,
-        "wellness": wellness,
-        "streak_days": streak_days,
-    }
+    return dashboard_data.get_dashboard(config, user_id)
 
 
 def export_user(config: Settings, user_id: str) -> dict:
